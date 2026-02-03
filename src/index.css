@@ -1,0 +1,135 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --spiritual-primary: 139 71 137;
+    --spiritual-secondary: 212 165 116;
+    --spiritual-accent: 107 144 128;
+  }
+  
+  body {
+    @apply bg-dark-bg-primary;
+    @apply text-dark-text-primary;
+    @apply font-sans;
+  }
+}
+
+@layer components {
+  .spiritual-card {
+    @apply bg-white/90 backdrop-blur-sm rounded-lg shadow-lg border border-purple-100;
+  }
+  
+  .spiritual-button {
+    @apply bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800;
+    @apply text-white font-medium px-6 py-3 rounded-lg;
+    @apply transition-all duration-200;
+    @apply shadow-md hover:shadow-lg;
+  }
+  
+  /* New dark theme button */
+  .dark-button {
+    @apply bg-dark-accent-orange hover:bg-dark-accent-orangeHover;
+    @apply text-white font-medium px-6 py-3 rounded-lg;
+    @apply transition-all duration-200;
+    @apply shadow-md hover:shadow-lg;
+  }
+  
+  /* Dark theme message bubble for questions */
+  .question-bubble {
+    @apply bg-dark-bg-elevated text-dark-text-primary;
+    @apply rounded-2xl shadow-md;
+  }
+  
+  /* Dark theme answer section */
+  .answer-section {
+    @apply bg-dark-bg-secondary border border-dark-border-primary;
+    @apply rounded-lg;
+  }
+}
+
+@layer utilities {
+  /* Horizontal scrollable tab bar - subtle scrollbar hint on mobile */
+  .overflow-x-auto.scrollbar-thin {
+    -webkit-overflow-scrolling: touch;
+  }
+  .overflow-x-auto.scrollbar-thin::-webkit-scrollbar {
+    height: 4px;
+  }
+  .overflow-x-auto.scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .overflow-x-auto.scrollbar-thin::-webkit-scrollbar-thumb {
+    background: rgba(58, 58, 58, 0.8);
+    border-radius: 4px;
+  }
+  .overflow-x-auto.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: rgba(232, 125, 95, 0.5);
+  }
+
+  /* Smooth fade-in animation */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  /* Smooth slide animations for tab content */
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateX(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes slideOut {
+    from {
+      opacity: 1;
+      transform: translateX(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateX(-20px);
+    }
+  }
+
+  /* Glow effect for active elements */
+  @keyframes glow {
+    0%, 100% {
+      box-shadow: 0 0 5px rgba(232, 125, 95, 0.2), 0 0 10px rgba(232, 125, 95, 0.1);
+    }
+    50% {
+      box-shadow: 0 0 10px rgba(232, 125, 95, 0.4), 0 0 20px rgba(232, 125, 95, 0.2);
+    }
+  }
+
+  .glow-effect {
+    animation: glow 2s ease-in-out infinite;
+  }
+
+  /* Pulse animation for recording */
+  @keyframes recording-pulse {
+    0%, 100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.8;
+      transform: scale(1.05);
+    }
+  }
+}

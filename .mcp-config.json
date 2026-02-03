@@ -1,0 +1,55 @@
+{
+  "mcpServers": {
+    "database-server": {
+      "config": {
+        "database_url": "postgresql+asyncpg://postgres:Supabase@2025@db.rmkatiatyikoxhnxsgsw.supabase.co:5432/postgres"
+      },
+      "description": "Supabase PostgreSQL database for Heartfulness RAG system",
+      "autoActivate": true
+    },
+    "github-official": {
+      "config": {
+        "owner": "PiyushVerma24",
+        "repo": "heartfulness-rag-system"
+      },
+      "description": "GitHub API access for repository management",
+      "autoActivate": true
+    },
+    "chrome-devtools": {
+      "description": "Chrome DevTools for web automation and testing",
+      "autoActivate": false
+    },
+    "miro": {
+      "description": "Miro boards for visual planning and collaboration",
+      "autoActivate": false
+    }
+  },
+  "project": "heartfulness-rag-system",
+  "github": {
+    "owner": "PiyushVerma24",
+    "repo": "heartfulness-rag-system",
+    "url": "https://github.com/PiyushVerma24/heartfulness-rag-system",
+    "branch": "main",
+    "auto_deploy": true
+  },
+  "supabase": {
+    "url": "https://rmkatiatyikoxhnxsgsw.supabase.co",
+    "project_ref": "rmkatiatyikoxhnxsgsw",
+    "database": "postgres",
+    "host": "db.rmkatiatyikoxhnxsgsw.supabase.co",
+    "port": 5432,
+    "user": "postgres",
+    "password": "Supabase@2025"
+  },
+  "vercel": {
+    "project": "app",
+    "org": "piyush-vermas-projects-4a8be759",
+    "production_url": "https://app-piyush-vermas-projects-4a8be759.vercel.app",
+    "auto_deploy_from_github": true
+  },
+  "ai_models": {
+    "primary": "x-ai/grok-4.1-fast",
+    "embedding": "text-embedding-3-small",
+    "fallback": ["x-ai/grok-4-fast", "x-ai/grok-4", "google/gemini-2.0-flash-exp:free"]
+  }
+}
