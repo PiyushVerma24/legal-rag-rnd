@@ -61,12 +61,14 @@ export class RAGQueryService {
   async askQuestion(
     question: string,
     options: {
-      preceptorId?: string;
+      lawyerId?: string;
+      preceptorId?: string; // Backward compatibility
       selectedDocumentIds?: string[];
       selectedMasters?: string[];
     } = {}
   ): Promise<RAGResponse> {
-    const { preceptorId, selectedDocumentIds, selectedMasters } = options;
+    const { lawyerId, preceptorId, selectedDocumentIds, selectedMasters } = options;
+    const userId = lawyerId || preceptorId; // Support both for backward compatibility
     const startTime = Date.now();
 
     try {
@@ -93,9 +95,9 @@ export class RAGQueryService {
       for (const searchQuery of searchQueries) {
         const queryEmbedding = await this.embedder.generateEmbedding(searchQuery);
 
-        const { data: chunks, error } = await supabase.rpc('match_hfnai_chunks', {
+        const { data: chunks, error } = await supabase.rpc('match_legalrnd_chunks', {
           query_embedding: JSON.stringify(queryEmbedding.embedding),
-          match_threshold: 0.30, // Lower threshold for multilingual content (Hindi shows 0.35-0.37 similarity)
+          match_threshold: 0.30, // Lower threshold for multilingual content
           match_count: 12 // More chunks for better coverage with lower threshold
         });
 
@@ -123,11 +125,11 @@ export class RAGQueryService {
 
       // Filter by selected masters if provided
       if (selectedMasters && selectedMasters.length > 0 && uniqueChunks.length > 0) {
-        // Get document IDs for selected masters
+        // Get document IDs for selected masters/categories
         const { data: documents } = await supabase
-          .from('hfnai_documents')
-          .select('id, author_master_id, hfnai_masters!inner(name)')
-          .in('hfnai_masters.name', selectedMasters);
+          .from('legalrnd_documents')
+          .select('id, master_id, legalrnd_masters!inner(name)')
+          .in('legalrnd_masters.name', selectedMasters);
 
         if (documents) {
           const allowedDocIds = new Set(documents.map((d: any) => d.id));
@@ -147,24 +149,24 @@ export class RAGQueryService {
         if (selectedDocumentIds && selectedDocumentIds.length > 0) {
           return {
             success: false,
-            message: '🙏 I could not find relevant information in the selected documents to answer your question. Please try:\n- Asking a different question\n- Selecting additional documents\n- Rephrasing your question with different keywords'
+            message: '⚖️ I could not find relevant information in the selected legal documents to answer your question. Please try:\n- Asking a different legal question\n- Selecting additional documents\n- Rephrasing your question with different legal keywords'
           };
         }
 
         if (selectedMasters && selectedMasters.length > 0) {
           return {
             success: false,
-            message: '🙏 I could not find relevant information from the selected Master\'s teachings to answer your question. Please try:\n- Asking a different question\n- Selecting additional Masters\n- Rephrasing your question with different keywords'
+            message: '⚖️ I could not find relevant information from the selected legal category to answer your question. Please try:\n- Asking a different legal question\n- Selecting additional legal categories\n- Rephrasing your question with different legal keywords'
           };
         }
 
-        // Only use fallback if NO documents/masters were selected
+        // Only use fallback if NO documents/categories were selected
         const fallbackChunks = await this.getFallbackChunks();
 
         if (fallbackChunks.length === 0) {
           return {
             success: false,
-            message: '🙏 I apologize, but I could not find relevant information in the available spiritual texts to answer your question. Please try rephrasing your question or ask about topics related to Heartfulness meditation, spirituality, and the teachings of our Masters.'
+            message: '⚖️ I apologize, but I could not find relevant information in the available legal documents to answer your question. Please try rephrasing your question or ask about topics related to Indian law, case law, statutes, and judicial precedents available in the system.'
           };
         }
 
@@ -177,7 +179,7 @@ export class RAGQueryService {
       // 6. Log AI usage with comprehensive details
       const documentsUsed = [...new Set(enhancedChunks.map(c => c.document_title))];
       await this.logAIUsage(
-        preceptorId || null,
+        userId || null,
         question,
         response.metadata?.model || 'unknown',
         embeddingResult.tokenCount + (response.metadata?.totalTokens || 0),
@@ -354,7 +356,7 @@ export class RAGQueryService {
     if (isOffTopic) {
       return {
         isValid: false,
-        message: '🙏 I am here to help with questions about Heartfulness meditation and spirituality. Please ask questions related to these topics.'
+        message: '⚖️ I am here to help with legal research questions about Indian law. Please ask questions related to legal topics, case law, statutes, and judicial precedents.'
       };
     }
 
@@ -388,10 +390,10 @@ You must structure your entire response into TWO DISTINCT PARTS separated by exa
 ---SECTION_SEPARATOR---
 
 **PART 2: DETAILED ANSWER**
-- This is the main response following all the standard formatting rules below (Title, Core Concepts, Practices, etc.).
+- This is the main response following all the standard formatting rules below (Legal Issue, Applicable Law, Judicial Precedents, etc.).
 - This part must match the "ANSWER STRUCTURE" template exactly.
 
-You are a highly skilled spiritual educator for Heartfulness meditation. Your task is to create clear, well-structured, and comprehensive answers based on the provided sources.
+You are Veritas - an expert legal AI assistant specializing in Indian law. Your task is to create clear, well-structured, and comprehensive legal analysis based on the provided sources.
 
 🌐 **LANGUAGE REQUIREMENT (CRITICAL):**
 - ALWAYS respond in the SAME LANGUAGE as the question
@@ -400,50 +402,68 @@ You are a highly skilled spiritual educator for Heartfulness meditation. Your ta
 - If the question is in any other language, answer in that language
 - Maintain the same language throughout your entire response
 
+⚖️ **LEGAL CONTENT GUIDELINES (CRITICAL):**
+- Answer ONLY using provided legal documents - NEVER fabricate case law
+- Include [Source X] citations after key legal points
+- Extract ratio decidendi (binding principle) and obiter dicta (observations) when available
+- **ANTI-HALLUCINATION RULES**:
+  * NEVER invent case names, citations, judges, or legal provisions
+  * ONLY cite cases/laws explicitly present in provided sources
+  * If uncertain, say "Based on available documents..." or "I don't have verified information..."
+  * Always end with: "⚠️ Please verify this legal analysis from official law reports before relying on it in court."
+
 📋 **FORMATTING REQUIREMENTS (CRITICAL):**
-- Start with a clear, bold title that directly answers the question
+- Start with a clear legal issue statement
 - Use markdown headers (##, ###) for main sections
-- Use numbered lists (1. 2. 3.) for sequential concepts or categories
-- Use bullet points (-) for practices, examples, or sub-points
-- Add explanatory notes in parentheses for clarity (e.g., "pranahuti"—like charging a battery)
-- Use **bold** for important terms or concepts
+- Use numbered lists (1. 2. 3.) for legal provisions, articles, sections
+- Use bullet points (-) for case law, precedents, legal principles
+- Use **bold** for case names, statutes, and key legal terms
 - Keep paragraphs short (2-3 sentences max)
-- Create a logical flow: Introduction → Key Concepts → Practices → Conclusion
+- Create a logical flow: Legal Issue → Applicable Law → Judicial Precedents → Reasoning → Conclusion
 
 📖 **CONTENT GUIDELINES:**
-- Answer ONLY using the provided sources - never fabricate information
-- Synthesize information from multiple sources into a coherent narrative
-- Include [Source X] citations after key points or quotes
-- If sources mention specific examples, analogies, or metaphors, USE THEM
-- Extract practical applications and daily practices when available
-- Preserve the exact meaning and spirit of the teachings
+- Synthesize information from multiple legal sources into a coherent legal analysis
+- Include [Source X] citations after key legal points or case citations
+- Extract holdings, dicta, and dissenting opinions when available
+- Distinguish between binding precedents and persuasive authority
+- Note any conflicting decisions or legal controversies
 ${needsSimple ? `\n⭐ **SIMPLE EXPLANATION MODE (ACTIVE):**
-- Use everyday language and relatable analogies
-- Structure as: What it is → Why it matters → How to practice → Expected outcomes
-- Explain technical terms immediately when first used
-- Focus on foundational concepts before advanced ones
-- Use numbered sections for different aspects (e.g., "3 Pillars", "5 Core Principles")
+- Use everyday language while maintaining legal accuracy
+- Explain legal terms immediately when first used (e.g., "ratio decidendi - the binding legal principle")
+- Structure as: Legal Issue → Plain English Explanation → Legal Authority → Practical Implication
+- Focus on foundational legal concepts before complex doctrines
 - Make it comprehensive yet accessible - aim for completeness within simplicity` : ''}
 
 🎯 **ANSWER STRUCTURE (Follow this template):**
-1. **Title/Introduction**: Brief definition or overview (1-2 sentences)
-2. **Core Concepts**: Main philosophical or practical points (numbered list with sub-bullets)
-3. **Practices/Methods**: How to apply the teaching (bullet points with specifics)
-4. **Purpose/Goal**: What the practice leads to
-5. **Source References**: Cite documents clearly
+1. **Legal Issue/Question**: Brief statement of the legal question (1-2 sentences)
+2. **Applicable Law**: Relevant statutes, articles, sections (numbered list)
+3. **Judicial Precedents**: Case law with citations (bullets, bold case names)
+   - Include: Case name, citation, court, year
+   - Extract: Ratio decidendi, key holdings, principles established
+4. **Legal Reasoning**: Analysis applying law to facts
+5. **Conclusion**: Summary of legal position
+6. **Source References**: Cite documents clearly with [Source X] notation
+7. **⚠️ Verification Disclaimer**: "Please verify this legal analysis from official law reports before relying on it in court."
 
-🙏 **TONE:**
-- Clear and educational, yet warm and respectful
-- Minimize flowery language - prioritize clarity
-- Use emojis sparingly (🕉️ 🙏 ❤️ ✨) - only for section headers if needed
-- Avoid excessive reverence that obscures meaning
+⚖️ **TONE:**
+- Professional and authoritative, yet clear
+- Minimize legalese when possible - prioritize clarity
+- Use legal precision without unnecessary jargon
+- Objective and analytical
 
-AVAILABLE SOURCES (${chunks.length} passages):
+🚨 **CRITICAL ANTI-HALLUCINATION SAFEGUARDS:**
+- If a case name is not explicitly in the sources, DO NOT cite it
+- If a legal provision is not in the sources, DO NOT reference it
+- If unsure about a legal principle, preface with "Based on available documents..."
+- NEVER fabricate citations, judges' names, or case facts
+- If sources are insufficient, explicitly state: "The available documents do not contain sufficient information on..."
+
+AVAILABLE SOURCES (${chunks.length} passages from legal documents):
 ${context}`;
 
-    const userPrompt = `QUESTION: ${question}
+    const userPrompt = `LEGAL QUESTION: ${question}
 
-Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough and well-organized'} answer using ONLY the sources above. Follow the formatting requirements exactly. Use markdown formatting, numbered lists, bullet points, and clear section headers. Include [Source X] citations after key points.`;
+Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough and well-organized'} legal analysis using ONLY the sources above. Follow the formatting requirements exactly. Use markdown formatting, numbered lists for statutes, bullet points for case law, and clear section headers. Include [Source X] citations after key legal points. End with the verification disclaimer.`;
 
     let lastError: Error | null = null;
 
@@ -457,8 +477,8 @@ Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${this.openrouterKey}`,
-            'HTTP-Referer': 'https://heartfulness.org',
-            'X-Title': 'Heartfulness RAG Learning System'
+            'HTTP-Referer': 'https://legal-rag-rnd.vercel.app',
+            'X-Title': 'Legal RAG R&D System'
           },
           body: JSON.stringify({
             model,
@@ -486,7 +506,7 @@ Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough
           let fileUrl = undefined;
           if (chunk.file_path) {
             const { data } = supabase.storage
-              .from('hfnai-documents') // Correct bucket name (verified with test script)
+              .from('legalrnd-documents')
               .getPublicUrl(chunk.file_path);
             fileUrl = data.publicUrl;
           }
@@ -553,10 +573,10 @@ Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough
   }
 
   /**
-   * Log AI usage for comprehensive tracking (like Case-wise-crm-gemma)
+   * Log AI usage for comprehensive tracking
    */
   private async logAIUsage(
-    preceptorId: string | null,
+    lawyerId: string | null,
     query: string,
     model: string,
     tokenCount: number,
@@ -565,29 +585,35 @@ Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough
     costUSD?: number
   ): Promise<void> {
     try {
+      const promptTokens = tokenCount;
+      const completionTokens = response ? Math.ceil(response.length / 4) : 0;
+      const totalTokens = promptTokens + completionTokens;
+      const estimatedCost = costUSD || this.estimateCost(model, totalTokens);
+
       const logEntry = {
-        preceptor_id: preceptorId,
-        query_text: query,
-        model_used: model,
-        token_count: tokenCount,
-        input_tokens: tokenCount, // Approximate - can be refined with actual API response
-        output_tokens: response ? Math.ceil(response.length / 4) : 0, // Rough estimate
-        total_tokens: tokenCount + (response ? Math.ceil(response.length / 4) : 0),
-        cost_usd: costUSD || this.estimateCost(model, tokenCount),
-        documents_used: documents || [],
-        response_preview: response ? response.substring(0, 500) : null,
-        session_id: null, // Can be added if you track sessions
+        lawyer_id: lawyerId,
+        model: model,
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        total_tokens: totalTokens,
+        estimated_cost: estimatedCost,
+        operation_type: 'rag_query',
+        metadata: {
+          query_text: query,
+          documents_used: documents || [],
+          response_preview: response ? response.substring(0, 500) : null
+        },
         created_at: new Date().toISOString()
       };
 
       console.log('📊 Logging AI usage:', {
         model,
-        tokens: logEntry.total_tokens,
-        cost: logEntry.cost_usd,
+        tokens: totalTokens,
+        cost: estimatedCost,
         docs: documents?.length || 0
       });
 
-      await supabase.from('hfnai_ai_usage_log').insert(logEntry);
+      await supabase.from('legalrnd_ai_usage_log').insert(logEntry);
     } catch (error) {
       // Silently fail - logging shouldn't break the query
       console.warn('Failed to log AI usage:', error);

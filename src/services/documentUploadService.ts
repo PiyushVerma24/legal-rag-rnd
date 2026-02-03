@@ -54,7 +54,7 @@ export class DocumentUploadService {
 
       // Look up master_id from master name
       const { data: master, error: masterError } = await supabase
-        .from('hfnai_masters')
+        .from('legalrnd_masters')
         .select('id')
         .eq('name', masterName)
         .single();
@@ -76,7 +76,7 @@ export class DocumentUploadService {
       const filePath = `documents/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
-        .from('hfnai-documents')
+        .from('legalrnd-documents')
         .upload(filePath, file, {
           cacheControl: '3600',
           upsert: false
@@ -101,7 +101,7 @@ export class DocumentUploadService {
       const youtubeVideoId = youtubeUrl ? this.extractYouTubeVideoId(youtubeUrl) : null;
 
       const { data: doc, error: docError } = await supabase
-        .from('hfnai_documents')
+        .from('legalrnd_documents')
         .insert({
           title,
           author_master_id: master.id,
@@ -120,7 +120,7 @@ export class DocumentUploadService {
       if (docError) {
         // Cleanup: delete uploaded file
         await supabase.storage
-          .from('hfnai-documents')
+          .from('legalrnd-documents')
           .remove([filePath]);
 
         throw new Error(`Failed to create document record: ${docError.message}`);
@@ -215,10 +215,10 @@ export class DocumentUploadService {
    */
   async getDocuments(): Promise<any[]> {
     const { data, error } = await supabase
-      .from('hfnai_documents')
+      .from('legalrnd_documents')
       .select(`
         *,
-        hfnai_masters(name)
+        legalrnd_masters(name)
       `)
       .order('upload_date', { ascending: false });
 
@@ -235,12 +235,12 @@ export class DocumentUploadService {
    */
   async getDocumentsByMaster(masterName: string): Promise<any[]> {
     const { data, error } = await supabase
-      .from('hfnai_documents')
+      .from('legalrnd_documents')
       .select(`
         *,
-        hfnai_masters!inner(name)
+        legalrnd_masters!inner(name)
       `)
-      .eq('hfnai_masters.name', masterName)
+      .eq('legalrnd_masters.name', masterName)
       .order('upload_date', { ascending: false });
 
     if (error) {
@@ -256,10 +256,10 @@ export class DocumentUploadService {
    */
   async getDocument(documentId: string): Promise<any> {
     const { data, error } = await supabase
-      .from('hfnai_documents')
+      .from('legalrnd_documents')
       .select(`
         *,
-        hfnai_masters(name)
+        legalrnd_masters(name)
       `)
       .eq('id', documentId)
       .single();
@@ -279,7 +279,7 @@ export class DocumentUploadService {
     try {
       // Fetch document to get file path
       const { data: doc, error: fetchError } = await supabase
-        .from('hfnai_documents')
+        .from('legalrnd_documents')
         .select('file_path')
         .eq('id', documentId)
         .single();
@@ -300,7 +300,7 @@ export class DocumentUploadService {
 
       // Delete document record
       const { error: docError } = await supabase
-        .from('hfnai_documents')
+        .from('legalrnd_documents')
         .delete()
         .eq('id', documentId);
 
@@ -310,7 +310,7 @@ export class DocumentUploadService {
 
       // Delete file from storage
       const { error: storageError } = await supabase.storage
-        .from('hfnai-documents')
+        .from('legalrnd-documents')
         .remove([doc.file_path]);
 
       if (storageError) {

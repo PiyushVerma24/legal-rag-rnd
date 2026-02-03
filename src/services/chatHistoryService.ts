@@ -36,7 +36,8 @@ export interface Citation {
 
 export interface SavedChat {
   id: string;
-  preceptor_id: string;
+  lawyer_id: string;
+  preceptor_id?: string; // Backward compatibility
   chat_title?: string;
   messages: ChatMessage[];
   ai_model?: string;
@@ -54,7 +55,7 @@ export class ChatHistoryService {
    * Save a chat conversation to the database
    */
   async saveChat(
-    preceptorId: string,
+    lawyerId: string,
     messages: ChatMessage[],
     options: {
       chatTitle?: string;
@@ -67,9 +68,9 @@ export class ChatHistoryService {
   ): Promise<{ success: boolean; chatId?: string; error?: string }> {
     try {
       const { data, error } = await supabase
-        .from('hfnai_saved_chats')
+        .from('legalrnd_saved_chats')
         .insert({
-          preceptor_id: preceptorId,
+          lawyer_id: lawyerId,
           chat_title: options.chatTitle || `Chat ${new Date().toLocaleDateString()}`,
           messages: JSON.stringify(messages),
           ai_model: options.aiModel,
@@ -98,10 +99,10 @@ export class ChatHistoryService {
   }
 
   /**
-   * Load all saved chats for a preceptor
+   * Load all saved chats for a lawyer
    */
   async loadChats(
-    preceptorId: string,
+    lawyerId: string,
     options: {
       pinnedOnly?: boolean;
       limit?: number;
@@ -109,9 +110,9 @@ export class ChatHistoryService {
   ): Promise<{ success: boolean; chats?: SavedChat[]; error?: string }> {
     try {
       let query = supabase
-        .from('hfnai_saved_chats')
+        .from('legalrnd_saved_chats')
         .select('*')
-        .eq('preceptor_id', preceptorId)
+        .eq('lawyer_id', lawyerId)
         .order('saved_at', { ascending: false });
 
       if (options.pinnedOnly) {
@@ -153,7 +154,7 @@ export class ChatHistoryService {
   async loadChat(chatId: string): Promise<{ success: boolean; chat?: SavedChat; error?: string }> {
     try {
       const { data, error } = await supabase
-        .from('hfnai_saved_chats')
+        .from('legalrnd_saved_chats')
         .select('*')
         .eq('id', chatId)
         .single();
@@ -215,7 +216,7 @@ export class ChatHistoryService {
       }
 
       const { error } = await supabase
-        .from('hfnai_saved_chats')
+        .from('legalrnd_saved_chats')
         .update(updateData)
         .eq('id', chatId);
 
@@ -237,7 +238,7 @@ export class ChatHistoryService {
   async deleteChat(chatId: string): Promise<{ success: boolean; error?: string }> {
     try {
       const { error } = await supabase
-        .from('hfnai_saved_chats')
+        .from('legalrnd_saved_chats')
         .delete()
         .eq('id', chatId);
 
@@ -258,7 +259,7 @@ export class ChatHistoryService {
    */
   saveToLocalStorage(key: string, messages: ChatMessage[]): void {
     try {
-      localStorage.setItem(`hfnai_chat_${key}`, JSON.stringify(messages));
+      localStorage.setItem(`legalrnd_chat_${key}`, JSON.stringify(messages));
     } catch (error) {
       console.error('Error saving to local storage:', error);
     }
@@ -269,7 +270,7 @@ export class ChatHistoryService {
    */
   loadFromLocalStorage(key: string): ChatMessage[] | null {
     try {
-      const data = localStorage.getItem(`hfnai_chat_${key}`);
+      const data = localStorage.getItem(`legalrnd_chat_${key}`);
       return data ? JSON.parse(data) : null;
     } catch (error) {
       console.error('Error loading from local storage:', error);
@@ -282,7 +283,7 @@ export class ChatHistoryService {
    */
   clearLocalStorage(key: string): void {
     try {
-      localStorage.removeItem(`hfnai_chat_${key}`);
+      localStorage.removeItem(`legalrnd_chat_${key}`);
     } catch (error) {
       console.error('Error clearing local storage:', error);
     }

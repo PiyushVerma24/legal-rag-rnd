@@ -1,9 +1,9 @@
 {
-  "name": "heartfulness-rag-system",
+  "name": "legal-rag-rnd",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "RAG-based spiritual learning platform for Heartfulness meditation preceptors",
+  "description": "Legal RAG R&D System - Research playground for legal document analysis",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

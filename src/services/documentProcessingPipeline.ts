@@ -41,8 +41,8 @@ export class DocumentProcessingPipeline {
       });
 
       const { data: document, error: fetchError } = await supabase
-        .from('hfnai_documents')
-        .select('*, hfnai_masters(name)')
+        .from('legalrnd_documents')
+        .select('*, legalrnd_masters(name)')
         .eq('id', documentId)
         .single();
 
@@ -69,7 +69,7 @@ export class DocumentProcessingPipeline {
 
       // Update document with extraction results
       await supabase
-        .from('hfnai_documents')
+        .from('legalrnd_documents')
         .update({
           full_text: extractionResult.fullText,
           page_count: extractionResult.pageCount,
@@ -118,7 +118,7 @@ export class DocumentProcessingPipeline {
         this.chunker.addChunkContext(
           chunk,
           document.title,
-          document.hfnai_masters?.name
+          document.legalrnd_masters?.name
         )
       );
 
@@ -146,7 +146,7 @@ export class DocumentProcessingPipeline {
 
       // Update processed timestamp (chunk_count removed - not in schema)
       await supabase
-        .from('hfnai_documents')
+        .from('legalrnd_documents')
         .update({
           processed_at: new Date().toISOString()
         })
@@ -226,7 +226,7 @@ export class DocumentProcessingPipeline {
       const batch = chunkRecords.slice(i, i + batchSize);
 
       const { error } = await supabase
-        .from('hfnai_document_chunks')
+        .from('legalrnd_document_chunks')
         .insert(batch)
         .select();
 
@@ -257,7 +257,7 @@ export class DocumentProcessingPipeline {
     }
 
     const { error } = await supabase
-      .from('hfnai_documents')
+      .from('legalrnd_documents')
       .update(updateData)
       .eq('id', documentId);
 
@@ -274,7 +274,7 @@ export class DocumentProcessingPipeline {
   ): Promise<ProcessingResult[]> {
     // Fetch all pending documents
     const { data: documents, error } = await supabase
-      .from('hfnai_documents')
+      .from('legalrnd_documents')
       .select('id, title')
       .eq('processed', false)
       .is('processing_status', null)
@@ -317,7 +317,7 @@ export class DocumentProcessingPipeline {
   async reprocessDocument(documentId: string): Promise<ProcessingResult> {
     // Reset document status
     await supabase
-      .from('hfnai_documents')
+      .from('legalrnd_documents')
       .update({
         processed: false,
         processing_status: 'pending'
@@ -326,7 +326,7 @@ export class DocumentProcessingPipeline {
 
     // Delete existing chunks
     await supabase
-      .from('hfnai_document_chunks')
+      .from('legalrnd_document_chunks')
       .delete()
       .eq('document_id', documentId);
 
@@ -345,7 +345,7 @@ export class DocumentProcessingPipeline {
     processing: number;
   }> {
     const { data: stats } = await supabase
-      .from('hfnai_documents')
+      .from('legalrnd_documents')
       .select('processing_status, processed');
 
     if (!stats) {
