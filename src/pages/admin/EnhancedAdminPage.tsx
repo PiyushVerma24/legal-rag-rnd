@@ -12,6 +12,13 @@ export default function EnhancedAdminPage() {
   const [title, setTitle] = useState('');
   const [master, setMaster] = useState('');
   const [youtubeUrl, setYoutubeUrl] = useState('');
+
+  // Legal metadata fields
+  const [caseNumber, setCaseNumber] = useState('');
+  const [citation, setCitation] = useState('');
+  const [courtName, setCourtName] = useState('');
+  const [judgmentDate, setJudgmentDate] = useState('');
+
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
 
@@ -70,6 +77,10 @@ export default function EnhancedAdminPage() {
       setTitle('');
       setMaster('');
       setYoutubeUrl('');
+      setCaseNumber('');
+      setCitation('');
+      setCourtName('');
+      setJudgmentDate('');
       // Reload document list
       setTimeout(() => {
         setProgress(null);
@@ -136,9 +147,9 @@ export default function EnhancedAdminPage() {
         <div className="mb-8 flex items-start justify-between">
           <div>
             <h1 className="text-3xl font-bold text-purple-900 mb-2 flex items-center gap-3">
-              📚 Admin Portal
+              ⚖️ Admin Portal
             </h1>
-            <p className="text-gray-600">Upload and manage spiritual literature</p>
+            <p className="text-gray-600">Upload and manage legal documents</p>
           </div>
           <button
             onClick={handleLogout}
@@ -268,7 +279,7 @@ export default function EnhancedAdminPage() {
                     type="text"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="e.g., Reality at Dawn"
+                    placeholder="e.g., Kesavananda Bharati v. State of Kerala"
                     className="w-full px-4 py-2 border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
                     disabled={uploading}
                   />
@@ -276,7 +287,7 @@ export default function EnhancedAdminPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Master/Author *
+                    Legal Category *
                   </label>
                   <select
                     value={master}
@@ -284,13 +295,86 @@ export default function EnhancedAdminPage() {
                     className="w-full px-4 py-2 border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
                     disabled={uploading}
                   >
-                    <option value="">Select Master</option>
-                    <option value="Babu ji Maharaj (Ram Chandra)">Babu ji Maharaj (Ram Chandra)</option>
-                    <option value="Lalaji Maharaj (Ram Chandra of Fatehgarh)">Lalaji Maharaj (Ram Chandra of Fatehgarh)</option>
-                    <option value="Chariji Maharaj (Parthasarathi Rajagopalachari)">Chariji Maharaj (Parthasarathi Rajagopalachari)</option>
-                    <option value="Daaji (Kamlesh Patel)">Daaji (Kamlesh Patel)</option>
-                    <option value="General">General (Uncategorized)</option>
+                    <option value="">Select Legal Category</option>
+                    <optgroup label="Jurisdictions">
+                      <option value="Supreme Court of India">Supreme Court of India</option>
+                      <option value="Delhi High Court">Delhi High Court</option>
+                      <option value="Bombay High Court">Bombay High Court</option>
+                      <option value="Calcutta High Court">Calcutta High Court</option>
+                      <option value="Madras High Court">Madras High Court</option>
+                    </optgroup>
+                    <optgroup label="Practice Areas">
+                      <option value="Constitutional Law">Constitutional Law</option>
+                      <option value="Criminal Law">Criminal Law</option>
+                      <option value="Civil Law">Civil Law</option>
+                      <option value="Corporate Law">Corporate Law</option>
+                      <option value="Tax Law">Tax Law</option>
+                    </optgroup>
+                    <optgroup label="Case Types">
+                      <option value="Writ Petition">Writ Petition</option>
+                      <option value="Civil Appeal">Civil Appeal</option>
+                      <option value="Criminal Appeal">Criminal Appeal</option>
+                      <option value="Public Interest Litigation (PIL)">Public Interest Litigation (PIL)</option>
+                    </optgroup>
                   </select>
+                </div>
+
+                {/* Legal Metadata Fields */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Case Number
+                    </label>
+                    <input
+                      type="text"
+                      value={caseNumber}
+                      onChange={(e) => setCaseNumber(e.target.value)}
+                      placeholder="e.g., Writ Petition (C) No. 135 of 1970"
+                      className="w-full px-4 py-2 border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                      disabled={uploading}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Citation
+                    </label>
+                    <input
+                      type="text"
+                      value={citation}
+                      onChange={(e) => setCitation(e.target.value)}
+                      placeholder="e.g., (1973) 4 SCC 225"
+                      className="w-full px-4 py-2 border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                      disabled={uploading}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Court Name
+                    </label>
+                    <input
+                      type="text"
+                      value={courtName}
+                      onChange={(e) => setCourtName(e.target.value)}
+                      placeholder="e.g., Supreme Court of India"
+                      className="w-full px-4 py-2 border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                      disabled={uploading}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Judgment Date
+                    </label>
+                    <input
+                      type="date"
+                      value={judgmentDate}
+                      onChange={(e) => setJudgmentDate(e.target.value)}
+                      className="w-full px-4 py-2 border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                      disabled={uploading}
+                    />
+                  </div>
                 </div>
 
                 <div>

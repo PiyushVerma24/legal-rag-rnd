@@ -32,9 +32,9 @@ export default function ChatPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="spiritual-card p-4">
-        <h1 className="text-2xl font-bold text-purple-800">🕉️ Heartfulness Wisdom</h1>
-        <p className="text-gray-600">Ask questions about spiritual teachings and meditation</p>
+      <header className="bg-dark-bg-secondary border-b border-dark-border-primary p-4">
+        <h1 className="text-2xl font-bold text-dark-text-primary">⚖️ Legal Research Assistant</h1>
+        <p className="text-dark-text-secondary">Ask questions about Indian law and case law</p>
       </header>
 
       <main className="flex-1 p-4 max-w-4xl mx-auto w-full">
@@ -63,7 +63,7 @@ export default function ChatPage() {
           {loading && (
             <div className="flex justify-start">
               <div className="spiritual-card p-4">
-                <p className="text-gray-600">Searching sacred texts...</p>
+                <p className="text-dark-text-secondary">Searching legal documents...</p>
               </div>
             </div>
           )}
@@ -76,7 +76,7 @@ export default function ChatPage() {
             type="text"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Ask about meditation, spirituality, or the Masters' teachings..."
+            placeholder="Ask about Indian law, statutes, case law, or judicial precedents..."
             className="flex-1 px-4 py-3 rounded-lg border border-purple-200 focus:outline-none focus:border-purple-500"
             disabled={loading}
           />

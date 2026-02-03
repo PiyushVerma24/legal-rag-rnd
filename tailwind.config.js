@@ -10,14 +10,15 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Legal theme colors - professional blue palette
+        // Legal branding colors (for auth, headers, titles only)
         legal: {
           primary: '#3b82f6', // Blue
           secondary: '#1e3a8a', // Navy
           accent: '#d4af37', // Gold
           accentHover: '#b8941f'
         },
-        // Dark theme optimized for legal content
+        // Dark theme - KEEP ORIGINAL HEARTFULNESS STYLE
+        // (orange accents work great for chat interface)
         dark: {
           bg: {
             primary: '#1E1E1E',
@@ -35,10 +36,12 @@ export default {
             muted: '#808080'
           },
           accent: {
-            orange: '#3b82f6', // Changed from orange to blue for legal theme
-            orangeHover: '#2563eb',
-            pink: '#60a5fa', // Light blue instead of pink
+            orange: '#E87D5F', // KEEP ORIGINAL ORANGE - works great for chat
+            orangeHover: '#D97757',
+            pink: '#E06C75',
+            // Add legal blue as additional option
             blue: '#3b82f6',
+            blueHover: '#2563eb',
             gold: '#d4af37'
           }
         }

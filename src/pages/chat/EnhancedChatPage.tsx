@@ -352,11 +352,10 @@ export default function EnhancedChatPage() {
           <div className="flex items-center gap-3">
             <div>
               <h1 className="text-xl font-bold text-dark-text-primary flex items-center gap-2">
-                Heartfulness Wisdom
-                <img src={hfnLogo} alt="Logo" className="h-10 w-10 rounded-full object-contain bg-white p-1" />
+                ⚖️ Legal Research Assistant
               </h1>
               <p className="text-xs text-dark-text-secondary">
-                Searching all available literature
+                Searching legal documents and case law
               </p>
             </div>
           </div>
@@ -426,19 +425,19 @@ export default function EnhancedChatPage() {
                 <div className="text-center max-w-2xl px-4">
                   <BookOpen className="h-16 w-16 mx-auto mb-4 text-dark-accent-orange/60" />
                   <h2 className="text-2xl font-semibold text-dark-text-primary mb-2">
-                    Welcome to Heartfulness Wisdom
+                    Welcome to Legal Research Assistant
                   </h2>
                   <p className="text-dark-text-secondary mb-8">
-                    Ask questions about meditation, spirituality, and the Masters' teachings.
+                    Ask questions about Indian law, case law, statutes, and judicial precedents.
                   </p>
 
                   {/* Sample Prompts */}
                   <div className="grid grid-cols-2 gap-2 md:gap-4 text-left">
                     {[
-                      "What is the role of transmission in meditation?",
-                      "How does cleaning help in spiritual progress?",
-                      "Explain the condition of balanced state.",
-                      "What is the importance of constant remembrance?"
+                      "What is the basic structure doctrine?",
+                      "Explain the right to privacy under Article 21",
+                      "What is the test for judicial review?",
+                      "Explain the doctrine of legitimate expectation"
                     ].map((question, idx) => (
                       <button
                         key={idx}
