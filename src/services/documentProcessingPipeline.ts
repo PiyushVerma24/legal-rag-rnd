@@ -1,13 +1,14 @@
 import { supabase } from '../lib/supabase';
 import { TextExtractionService } from './textExtractionService';
-import { ChunkingService, TextChunk } from './chunkingService';
+import { ChunkingService, TextChunk, ChunkValidationResult } from './chunkingService';
 import { EmbeddingService } from './embeddingService';
 
 export interface ProcessingStatus {
-  stage: 'extraction' | 'chunking' | 'embedding' | 'storage' | 'completed' | 'failed';
+  stage: 'extraction' | 'chunking' | 'validation' | 'embedding' | 'storage' | 'completed' | 'failed';
   progress: number; // 0-100
   message: string;
   error?: string;
+  validationResults?: ChunkValidationResult[]; // NEW: Detailed validation results
 }
 
 export interface ProcessingResult {
@@ -33,6 +34,9 @@ export class DocumentProcessingPipeline {
     onProgress?: (status: ProcessingStatus) => void
   ): Promise<ProcessingResult> {
     try {
+      console.log('🚀🚀🚀 ========== DOCUMENT PROCESSING PIPELINE STARTED ==========');
+      console.log(`📄 Processing document ID: ${documentId}`);
+
       // Fetch document metadata
       onProgress?.({
         stage: 'extraction',
@@ -95,16 +99,42 @@ export class DocumentProcessingPipeline {
 
       console.log(`Created ${chunks.length} chunks`);
 
-      // Validate chunks
-      const validChunks = chunks.filter(chunk => {
-        const validation = this.chunker.validateChunk(chunk);
-        if (!validation.valid) {
-          console.warn(`Skipping invalid chunk ${chunk.chunkIndex}: ${validation.reason}`);
-        }
-        return validation.valid;
+      console.log('🔍 ========== STARTING VALIDATION STAGE ==========');
+      console.log(`📊 Total chunks to validate: ${chunks.length}`);
+
+      // Stage 2: Validate chunks and collect results
+      onProgress?.({
+        stage: 'validation',
+        progress: 40,
+        message: 'Validating chunks...'
       });
 
-      console.log(`${validChunks.length} valid chunks after validation`);
+      // Collect validation results for ALL chunks
+      const validationResults: ChunkValidationResult[] = [];
+      const validChunks: TextChunk[] = [];
+
+      chunks.forEach(chunk => {
+        const validation = this.chunker.validateChunk(chunk);
+        validationResults.push(validation);
+
+        if (validation.valid) {
+          validChunks.push(chunk);
+        } else {
+          console.warn(`Skipping invalid chunk ${chunk.chunkIndex}: ${validation.reason}`);
+        }
+      });
+
+      const invalidCount = validationResults.filter(r => !r.valid).length;
+      console.log(`✅ Validation complete: ${validChunks.length} valid, ${invalidCount} invalid`);
+      console.log('🔍 ========== VALIDATION STAGE COMPLETE ==========');
+
+      // Report validation results
+      onProgress?.({
+        stage: 'validation',
+        progress: 45,
+        message: `Validated ${chunks.length} chunks (${validChunks.length} valid, ${invalidCount} skipped)`,
+        validationResults // Pass validation data to UI
+      });
 
       // Stage 3: Generate embeddings
       const estimatedMinutes = Math.ceil(validChunks.length / 20); // ~20 chunks per minute
@@ -122,9 +152,35 @@ export class DocumentProcessingPipeline {
         )
       );
 
-      const embeddingResult = await this.embedder.generateBatchEmbeddings(chunkTexts);
+      // CRITICAL FIX: Filter out any empty texts AFTER adding context
+      // This prevents mismatch between chunk count and embedding count
+      const nonEmptyIndices: number[] = [];
+      const nonEmptyTexts: string[] = [];
 
-      console.log(`Generated embeddings using ${embeddingResult.totalTokens} tokens`);
+      chunkTexts.forEach((text, index) => {
+        if (text && text.trim().length > 0) {
+          nonEmptyIndices.push(index);
+          nonEmptyTexts.push(text);
+        } else {
+          console.warn(`Chunk ${validChunks[index].chunkIndex} became empty after adding context, skipping`);
+        }
+      });
+
+      // Keep only chunks that have non-empty text
+      const finalChunks = nonEmptyIndices.map(i => validChunks[i]);
+
+      console.log('🔍 ========== STARTING EMBEDDING STAGE ==========');
+      console.log(`📊 Chunks before context: ${validChunks.length}`);
+      console.log(`📊 Chunk texts after context: ${chunkTexts.length}`);
+      console.log(`📊 Non-empty texts: ${nonEmptyTexts.length}`);
+      console.log(`📊 Final chunks to embed: ${finalChunks.length}`);
+      console.log(`🚀 Sending ${nonEmptyTexts.length} chunks to embedding service`);
+
+      const embeddingResult = await this.embedder.generateBatchEmbeddings(nonEmptyTexts);
+
+      console.log(`✅ Received ${embeddingResult.embeddings.length} embeddings`);
+      console.log(`📊 Total tokens used: ${embeddingResult.totalTokens}`);
+      console.log('🔍 ========== EMBEDDING STAGE COMPLETE ==========');
 
       // Stage 4: Store chunks with embeddings
       onProgress?.({
@@ -135,7 +191,7 @@ export class DocumentProcessingPipeline {
 
       const storedCount = await this.storeChunksWithEmbeddings(
         documentId,
-        validChunks,
+        finalChunks, // Use filtered chunks that match embeddings
         embeddingResult.embeddings
       );
 
@@ -144,11 +200,12 @@ export class DocumentProcessingPipeline {
       // Stage 5: Mark as completed
       await this.updateDocumentStatus(documentId, 'completed');
 
-      // Update processed timestamp (chunk_count removed - not in schema)
+      // Update processed timestamp
       await supabase
         .from('legalrnd_documents')
         .update({
-          processed_at: new Date().toISOString()
+          // status: 'completed' is already set by updateDocumentStatus
+          updated_at: new Date().toISOString()
         })
         .eq('id', documentId);
 
@@ -213,8 +270,6 @@ export class DocumentProcessingPipeline {
       page_number: chunk.pageNumber,
       token_count: chunk.tokenCount,
       embedding: JSON.stringify(embeddings[index]), // Supabase expects array as JSON
-      start_timestamp: chunk.startTimestamp,
-      end_timestamp: chunk.endTimestamp,
       created_at: new Date().toISOString()
     }));
 
@@ -245,20 +300,13 @@ export class DocumentProcessingPipeline {
   /**
    * Update document processing status
    */
-  private async updateDocumentStatus(
+  async updateDocumentStatus(
     documentId: string,
     status: 'pending' | 'processing' | 'completed' | 'failed'
   ): Promise<void> {
-    const updateData: any = { processing_status: status };
-
-    // Only update 'processed' boolean flag when completed
-    if (status === 'completed' || status === 'failed') {
-      updateData.processed = status === 'completed';
-    }
-
     const { error } = await supabase
       .from('legalrnd_documents')
-      .update(updateData)
+      .update({ status })
       .eq('id', documentId);
 
     if (error) {
@@ -276,9 +324,7 @@ export class DocumentProcessingPipeline {
     const { data: documents, error } = await supabase
       .from('legalrnd_documents')
       .select('id, title')
-      .eq('processed', false)
-      .is('processing_status', null)
-      .or('processing_status.eq.pending,processing_status.eq.failed');
+      .eq('status', 'pending');
 
     if (error || !documents) {
       console.error('Error fetching pending documents:', error);
@@ -290,7 +336,8 @@ export class DocumentProcessingPipeline {
     const results: ProcessingResult[] = [];
 
     for (const doc of documents) {
-      console.log(`\nProcessing: ${doc.title}`);
+      console.log(`
+Processing: ${doc.title}`);
 
       const result = await this.processDocument(
         doc.id,
@@ -306,7 +353,8 @@ export class DocumentProcessingPipeline {
     }
 
     const successCount = results.filter(r => r.success).length;
-    console.log(`\n✅ Processed ${successCount}/${documents.length} documents successfully`);
+    console.log(`
+✅ Processed ${successCount}/${documents.length} documents successfully`);
 
     return results;
   }
@@ -319,8 +367,7 @@ export class DocumentProcessingPipeline {
     await supabase
       .from('legalrnd_documents')
       .update({
-        processed: false,
-        processing_status: 'pending'
+        status: 'pending'
       })
       .eq('id', documentId);
 
@@ -346,7 +393,7 @@ export class DocumentProcessingPipeline {
   }> {
     const { data: stats } = await supabase
       .from('legalrnd_documents')
-      .select('processing_status, processed');
+      .select('status');
 
     if (!stats) {
       return { total: 0, processed: 0, pending: 0, failed: 0, processing: 0 };
@@ -354,10 +401,10 @@ export class DocumentProcessingPipeline {
 
     return {
       total: stats.length,
-      processed: stats.filter(s => s.processed).length,
-      pending: stats.filter(s => !s.processing_status || s.processing_status === 'pending').length,
-      failed: stats.filter(s => s.processing_status === 'failed').length,
-      processing: stats.filter(s => s.processing_status === 'processing').length
+      processed: stats.filter(s => s.status === 'completed').length,
+      pending: stats.filter(s => s.status === 'pending').length,
+      failed: stats.filter(s => s.status === 'failed').length,
+      processing: stats.filter(s => s.status === 'processing').length
     };
   }
 }

@@ -48,7 +48,7 @@ export class TextExtractionService {
     try {
       // Download file from Supabase Storage
       const { data: fileData, error } = await supabase.storage
-        .from('hfnai-documents')
+        .from('legalrnd-documents')
         .download(filePath);
 
       if (error) throw error;
@@ -111,13 +111,13 @@ export class TextExtractionService {
 
       // Set worker source using CDN (required for pdfjs-dist in browser)
       pdfjsLib.GlobalWorkerOptions.workerSrc =
-        'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.530/build/pdf.worker.mjs';
+        'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.624/build/pdf.worker.mjs';
 
       // Load PDF document
       const loadingTask = pdfjsLib.getDocument({
         data: arrayBuffer,
         useSystemFonts: true,
-        standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.530/standard_fonts/'
+        standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.624/standard_fonts/'
       });
 
       const pdf = await loadingTask.promise;
@@ -222,7 +222,7 @@ export class TextExtractionService {
   private async extractFromEPUB(filePath: string): Promise<ExtractionResult> {
     try {
       const { data: _fileData, error } = await supabase.storage
-        .from('hfnai-documents')
+        .from('legalrnd-documents')
         .download(filePath);
 
       if (error) throw error;
@@ -252,7 +252,7 @@ export class TextExtractionService {
   private async extractFromText(filePath: string): Promise<ExtractionResult> {
     try {
       const { data: fileData, error } = await supabase.storage
-        .from('hfnai-documents')
+        .from('legalrnd-documents')
         .download(filePath);
 
       if (error) throw error;

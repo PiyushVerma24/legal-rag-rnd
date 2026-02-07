@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { RAGQueryService } from '@/services/ragQueryService';
 import { ChatHistoryService, ChatMessage } from '@/services/chatHistoryService';
 import { supabase } from '@/lib/supabase';
-// import DocumentTreeSelector from '@/components/DocumentTreeSelector';
+import DocumentTreeSelector from '@/components/DocumentTreeSelector';
 import SourceCitation from '@/components/SourceCitation';
+import AccordionSection from '@/components/AccordionSection';
 import { YouTubePlayer } from '@/components/YouTubePlayer';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -70,7 +71,7 @@ export default function EnhancedChatPage() {
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       const recognitionInstance = new SpeechRecognition();
-      
+
       recognitionInstance.continuous = false;
       recognitionInstance.interimResults = false;
       recognitionInstance.lang = 'en-US';
@@ -338,10 +339,10 @@ export default function EnhancedChatPage() {
     }
   };
 
-  // const handleSelectionChange = (docIds: string[], masterNames: string[]) => {
-  //   setSelectedDocumentIds(docIds);
-  //   setSelectedMasters(masterNames);
-  // };
+  const handleSelectionChange = (docIds: string[], masterNames: string[]) => {
+    setSelectedDocumentIds(docIds);
+    setSelectedMasters(masterNames);
+  };
 
   return (
     <div className="h-screen flex flex-col bg-dark-bg-primary overflow-hidden">
@@ -404,12 +405,12 @@ export default function EnhancedChatPage() {
 
       <div className="flex-1 flex overflow-x-auto overflow-y-hidden" style={{ WebkitOverflowScrolling: 'touch' }}>
         {/* Sidebar - Document Tree Selector (REMOVED) */}
-        {/* <div className="w-72 sm:w-80 flex-shrink-0 bg-white border-r border-purple-200 shadow-lg">
+        <div className="w-72 sm:w-80 flex-shrink-0 bg-dark-bg-secondary border-r border-dark-border-primary shadow-lg hidden md:block">
           <DocumentTreeSelector
             onSelectionChange={handleSelectionChange}
             className="h-full"
           />
-        </div> */}
+        </div>
 
         {/* Main Chat Area */}
         <div className="flex-1 min-w-0 flex flex-col">
@@ -526,7 +527,7 @@ export default function EnhancedChatPage() {
               <div className="flex max-w-4xl mx-auto w-full justify-start">
                 <div className="bg-dark-bg-elevated border border-dark-border-primary rounded-lg shadow-sm p-4 flex items-center gap-3">
                   <Loader2 className="h-4 w-4 animate-spin text-dark-accent-orange" />
-                  <span className="text-dark-text-secondary">Searching sacred texts...</span>
+                  <span className="text-dark-text-secondary">Searching Legal documents...</span>
                 </div>
               </div>
             )}
@@ -542,7 +543,7 @@ export default function EnhancedChatPage() {
                   type="text"
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
-                  placeholder="Ask about meditation, spirituality, or..."
+                  placeholder="Ask your legal query..."
                   className="flex-1 px-3 py-2 md:px-4 md:py-3 rounded-lg bg-dark-bg-primary border border-dark-border-primary focus:outline-none focus:border-dark-accent-orange text-dark-text-primary placeholder-dark-text-muted text-sm md:text-base"
                   disabled={isLoading}
                 />
@@ -550,11 +551,10 @@ export default function EnhancedChatPage() {
                   type="button"
                   onClick={toggleVoiceInput}
                   disabled={isLoading}
-                  className={`px-3 py-2 md:px-4 md:py-3 rounded-lg font-medium transition text-sm md:text-base flex items-center gap-2 ${
-                    isListening 
-                      ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse' 
-                      : 'bg-dark-bg-elevated hover:bg-dark-bg-tertiary text-dark-text-primary border border-dark-border-primary'
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  className={`px-3 py-2 md:px-4 md:py-3 rounded-lg font-medium transition text-sm md:text-base flex items-center gap-2 ${isListening
+                    ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse'
+                    : 'bg-dark-bg-elevated hover:bg-dark-bg-tertiary text-dark-text-primary border border-dark-border-primary'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
                   title={isListening ? 'Stop listening' : 'Voice input'}
                 >
                   {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
@@ -701,171 +701,97 @@ export default function EnhancedChatPage() {
  * Component to handle the 3-section structured response with modern tabbed interface
  */
 function StructuredMessage({ message, onCopy }: { message: ChatMessage, onCopy: () => void }) {
-  // Default to summary if available, otherwise detail
-  const [activeTab, setActiveTab] = useState<'summary' | 'detail' | 'citations'>(
-    message.summary ? 'summary' : 'detail'
+  // Track which sections are expanded (Summary open by default)
+  const [expandedSections, setExpandedSections] = useState<Set<'summary' | 'detail' | 'citations'>>(
+    () => new Set(message.summary ? ['summary'] : ['detail'])
   );
 
-  // If no summary exists (legacy messages), ensure detail is shown
-  useEffect(() => {
-    if (!message.summary && activeTab === 'summary') {
-      setActiveTab('detail');
-    }
-  }, [message.summary, activeTab]);
+  const toggleSection = (section: 'summary' | 'detail' | 'citations') => {
+    setExpandedSections(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(section)) {
+        newSet.delete(section);
+      } else {
+        newSet.add(section);
+      }
+      return newSet;
+    });
+  };
 
-  const tabs = [
-    ...(message.summary ? [{
-      id: 'summary' as const,
-      label: 'Summary',
-      icon: AlignLeft,
-      badge: message.reading_time?.summary,
-      available: true
-    }] : []),
-    {
-      id: 'detail' as const,
-      label: 'Detailed',
-      icon: FileText,
-      badge: message.reading_time?.detail,
-      available: true
-    },
-    {
-      id: 'citations' as const,
-      label: 'Sources',
-      icon: BookOpen,
-      badge: message.citations?.length ? `${message.citations.length}` : undefined,
-      available: message.citations && message.citations.length > 0
-    }
-  ].filter(tab => tab.available);
+
 
   return (
-    <div className="bg-dark-bg-secondary rounded-xl border border-dark-border-primary overflow-hidden">
-      {/* Modern Tab Navigation - scrollable on mobile so Sources tab is reachable */}
-      <div className="flex items-center gap-2 p-2 bg-dark-bg-tertiary border-b border-dark-border-primary">
-        {/* Scrollable tab strip: flex-1 min-w-0 allows horizontal scroll on small screens */}
-        <div
-          className="flex flex-1 min-w-0 overflow-x-auto overflow-y-hidden gap-1 -mx-1 px-1 scrollbar-thin"
-          style={{ WebkitOverflowScrolling: 'touch' }}
+    <div className="space-y-3">
+
+      {/* Summary Section */}
+      {message.summary && (
+        <AccordionSection
+          title="Summary"
+          icon={AlignLeft}
+          badge={message.reading_time?.summary}
+          isExpanded={expandedSections.has('summary')}
+          onToggle={() => toggleSection('summary')}
+          onCopy={onCopy}
         >
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
+          <div className="text-dark-text-primary text-sm leading-relaxed">
+            {message.summary}
+          </div>
+        </AccordionSection>
+      )}
 
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`
-                  relative flex items-center gap-2 px-3 sm:px-4 py-2.5 rounded-lg font-medium text-sm transition-all duration-300 flex-shrink-0
-                  ${isActive
-                    ? 'bg-dark-bg-secondary text-dark-text-primary shadow-lg'
-                    : 'text-dark-text-secondary hover:text-dark-text-primary hover:bg-dark-bg-secondary/50'
-                  }
-                `}
-              >
-                {/* Glowing effect for active tab */}
-                {isActive && (
-                  <div className="absolute inset-0 bg-gradient-to-r from-dark-accent-orange/20 to-dark-accent-pink/20 rounded-lg animate-pulse" />
-                )}
-
-                <Icon className={`h-4 w-4 relative z-10 flex-shrink-0 ${isActive ? 'text-dark-accent-orange' : ''}`} />
-                <span className="relative z-10 whitespace-nowrap">{tab.label}</span>
-
-                {tab.badge && (
-                  <span className={`
-                    relative z-10 text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0
-                    ${isActive
-                      ? 'bg-dark-accent-orange/20 text-dark-accent-orange'
-                      : 'bg-dark-bg-primary text-dark-text-muted'
-                    }
-                  `}>
-                    {tab.badge}
-                  </span>
-                )}
-
-                {/* Active indicator line */}
-                {isActive && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-dark-accent-orange to-dark-accent-pink rounded-b-lg" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Copy button - always visible, doesn't scroll away */}
-        <button
-          onClick={onCopy}
-          className="flex-shrink-0 p-2 hover:bg-dark-bg-elevated rounded-lg text-dark-text-muted hover:text-dark-accent-orange transition-colors"
-          title="Copy content"
+      {/* Detail Section */}
+      <AccordionSection
+        title="Detailed Answer"
+        icon={FileText}
+        badge={message.reading_time?.detail}
+        isExpanded={expandedSections.has('detail')}
+        onToggle={() => toggleSection('detail')}
+        onCopy={onCopy}
+      >
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          className="prose prose-sm max-w-none prose-invert"
         >
-          <Copy className="h-4 w-4" />
-        </button>
-      </div>
+          {message.content}
+        </ReactMarkdown>
 
-      {/* Tab Content with smooth transitions */}
-      <div className="relative min-h-[100px]">
-        {/* Summary Tab */}
-        {message.summary && (
-          <div className={`
-            transition-all duration-300 ease-in-out
-            ${activeTab === 'summary' ? 'opacity-100 translate-x-0' : 'absolute opacity-0 translate-x-4 pointer-events-none'}
-          `}>
-            <div className="p-4 md:p-6 text-dark-text-primary text-sm leading-relaxed">
-              {message.summary}
+        {/* Embedded Videos in Detail View */}
+        {message.citations && message.citations.some(c => c.youtube_video_id) && (
+          <div className="mt-6 pt-4 border-dark-border-primary space-y-3">
+            <p className="text-sm font-medium text-dark-accent-orange flex items-center gap-2">
+              <span>📹</span>
+              Video Sources
+            </p>
+            <div className="grid grid-cols-1 gap-4">
+              {message.citations
+                .filter(c => c.youtube_video_id)
+                .slice(0, 2)
+                .map((citation, idx) => (
+                  <YouTubePlayer
+                    key={idx}
+                    videoId={citation.youtube_video_id!}
+                    startTime={citation.start_timestamp || 0}
+                    title={`${citation.document_title} - ${citation.master_name}`}
+                    className="w-full"
+                  />
+                ))}
             </div>
           </div>
         )}
+      </AccordionSection>
 
-        {/* Detail Tab */}
-        <div className={`
-          transition-all duration-300 ease-in-out
-          ${activeTab === 'detail' ? 'opacity-100 translate-x-0' : 'absolute opacity-0 translate-x-4 pointer-events-none'}
-        `}>
-          <div className="p-4 md:p-6">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              className="prose prose-sm max-w-none prose-invert"
-            >
-              {message.content}
-            </ReactMarkdown>
-
-            {/* Embedded Videos in Detail View */}
-            {message.citations && message.citations.some(c => c.youtube_video_id) && (
-              <div className="mt-6 pt-4 border-t border-dark-border-primary space-y-3">
-                <p className="text-sm font-medium text-dark-accent-orange flex items-center gap-2">
-                  <span>📹</span>
-                  Video Sources
-                </p>
-                <div className="grid grid-cols-1 gap-4">
-                  {message.citations
-                    .filter(c => c.youtube_video_id)
-                    .slice(0, 2)
-                    .map((citation, idx) => (
-                      <YouTubePlayer
-                        key={idx}
-                        videoId={citation.youtube_video_id!}
-                        startTime={citation.start_timestamp || 0}
-                        title={`${citation.document_title} - ${citation.master_name}`}
-                        className="w-full"
-                      />
-                    ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Citations Tab */}
-        {message.citations && message.citations.length > 0 && (
-          <div className={`
-            transition-all duration-300 ease-in-out
-            ${activeTab === 'citations' ? 'opacity-100 translate-x-0' : 'absolute opacity-0 translate-x-4 pointer-events-none'}
-          `}>
-            <div className="p-4 md:p-6">
-              <SourceCitation citations={message.citations} />
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Sources Section */}
+      {message.citations && message.citations.length > 0 && (
+        <AccordionSection
+          title="Sources"
+          icon={BookOpen}
+          badge={`${message.citations.length}`}
+          isExpanded={expandedSections.has('citations')}
+          onToggle={() => toggleSection('citations')}
+        >
+          <SourceCitation citations={message.citations} />
+        </AccordionSection>
+      )}
     </div>
   );
 }

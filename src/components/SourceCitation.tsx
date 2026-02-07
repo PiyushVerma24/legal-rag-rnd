@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { BookOpen, X, ExternalLink, Scale, AlertTriangle } from 'lucide-react';
-import { generateLegalDatabaseLinks, isValidCitationFormat } from '@/utils/legal-link-generator';
+import { BookOpen, X, ExternalLink, Scale } from 'lucide-react';
+import SimplePDFViewer from './SimplePDFViewer';
 
 interface Citation {
   document_id: string;
@@ -133,16 +133,17 @@ export default function SourceCitation({ citations }: SourceCitationProps) {
 
       {/* Source Modal */}
       {selectedCitation && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
-          <div className="bg-dark-bg-secondary rounded-lg shadow-2xl max-w-5xl w-full h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200 border border-dark-border-primary">
-            {/* Header */}
-            <div className="p-4 border-b border-dark-border-primary bg-dark-bg-elevated flex-shrink-0">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-dark-text-primary mb-1 truncate">
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4" onClick={() => setSelectedCitation(null)}>
+          <div className="bg-dark-bg-secondary rounded-lg shadow-2xl max-w-5xl w-full h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200 border border-dark-border-primary relative" onClick={(e) => e.stopPropagation()}>
+
+            {/* Header - Compact */}
+            <div className="p-3 pr-16 border-b border-dark-border-primary bg-dark-bg-elevated flex-shrink-0 relative z-[100]">
+              <div className="flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-base font-semibold text-dark-text-primary truncate">
                     {selectedCitation.document_title}
                   </h3>
-                  <div className="flex flex-wrap gap-2 text-sm text-dark-text-secondary">
+                  <div className="flex flex-wrap gap-2 text-xs text-dark-text-secondary mt-1">
                     <span className="flex items-center gap-1">
                       <Scale className="h-3 w-3" />
                       {selectedCitation.master_name}
@@ -151,70 +152,7 @@ export default function SourceCitation({ citations }: SourceCitationProps) {
                       <span className="bg-dark-bg-tertiary text-dark-accent-orange px-2 py-0.5 rounded text-xs font-medium">Page {selectedCitation.page_number}</span>
                     )}
                   </div>
-
-                  {/* Legal Metadata */}
-                  {(selectedCitation.case_number || selectedCitation.citation || selectedCitation.court_name) && (
-                    <div className="mt-3 pt-3 border-t border-dark-border-primary space-y-1.5">
-                      {selectedCitation.case_number && (
-                        <div className="flex items-start gap-2 text-xs">
-                          <span className="text-dark-text-muted font-medium min-w-[80px]">Case No:</span>
-                          <span className="text-dark-text-secondary">{selectedCitation.case_number}</span>
-                        </div>
-                      )}
-                      {selectedCitation.citation && (
-                        <div className="flex items-start gap-2 text-xs">
-                          <span className="text-dark-text-muted font-medium min-w-[80px]">Citation:</span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-dark-text-secondary font-mono">{selectedCitation.citation}</span>
-                            {!isValidCitationFormat(selectedCitation.citation) && (
-                              <span className="flex items-center gap-1 text-amber-500 text-xs">
-                                <AlertTriangle className="h-3 w-3" />
-                                Verify
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      {selectedCitation.court_name && (
-                        <div className="flex items-start gap-2 text-xs">
-                          <span className="text-dark-text-muted font-medium min-w-[80px]">Court:</span>
-                          <span className="text-dark-text-secondary">{selectedCitation.court_name}</span>
-                        </div>
-                      )}
-
-                      {/* Legal Database Links */}
-                      {selectedCitation.citation && (
-                        <div className="mt-3 pt-2 border-t border-dark-border-primary">
-                          <p className="text-xs text-dark-text-muted font-medium mb-2">Search in Legal Databases:</p>
-                          <div className="flex flex-wrap gap-2">
-                            {generateLegalDatabaseLinks(selectedCitation.citation, selectedCitation.document_title).map((link) => (
-                              <a
-                                key={link.name}
-                                href={link.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1 px-2 py-1 bg-dark-bg-tertiary hover:bg-dark-bg-primary text-dark-text-secondary hover:text-dark-accent-orange text-xs rounded border border-dark-border-primary transition"
-                              >
-                                <ExternalLink className="h-3 w-3" />
-                                {link.name}
-                                {link.isFree && <span className="text-green-500 ml-1">•</span>}
-                              </a>
-                            ))}
-                          </div>
-                          <p className="text-xs text-dark-text-muted mt-2 italic">
-                            • Green dot indicates free access
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
-                <button
-                  onClick={() => setSelectedCitation(null)}
-                  className="p-2 hover:bg-dark-bg-tertiary rounded-lg transition flex-shrink-0 text-dark-text-muted hover:text-dark-text-primary"
-                >
-                  <X className="h-6 w-6" />
-                </button>
               </div>
             </div>
 
@@ -222,18 +160,11 @@ export default function SourceCitation({ citations }: SourceCitationProps) {
             <div className="flex-1 overflow-hidden flex flex-col relative bg-dark-bg-primary">
               {/* PDF Viewer */}
               {selectedCitation.file_url && selectedCitation.file_type === 'application/pdf' ? (
-                <div className="w-full h-full">
-                  <object
-                    data={`${selectedCitation.file_url}#page=${selectedCitation.page_number || 1}`}
-                    type="application/pdf"
-                    className="w-full h-full"
-                  >
-                    <iframe
-                      src={`https://docs.google.com/viewer?url=${encodeURIComponent(selectedCitation.file_url)}&embedded=true`}
-                      className="w-full h-full border-none"
-                      title="PDF Viewer"
-                    />
-                  </object>
+                <div className="w-full h-full overflow-hidden">
+                  <SimplePDFViewer
+                    url={selectedCitation.file_url}
+                    pageNumber={selectedCitation.page_number || 1}
+                  />
                 </div>
               ) : (
                 // Fallback to text view
@@ -257,12 +188,21 @@ export default function SourceCitation({ citations }: SourceCitationProps) {
             </div>
 
             {/* Footer with Metadata */}
-            <div className="p-3 bg-dark-bg-elevated border-t border-dark-border-primary flex justify-between text-xs text-dark-text-muted flex-shrink-0">
+            <div className="p-3 bg-dark-bg-elevated border-t border-dark-border-primary flex justify-between text-xs text-dark-text-muted flex-shrink-0 relative z-[100]">
               <div>ID: {selectedCitation.chunk_id.substring(0, 8)}</div>
               {selectedCitation.similarity && (
                 <div>Match Score: {(selectedCitation.similarity * 100).toFixed(1)}%</div>
               )}
             </div>
+
+            {/* Close Button - Rendered LAST to be on top of iframe */}
+            <button
+              onClick={() => setSelectedCitation(null)}
+              className="absolute top-3 right-3 z-[9999] p-2 bg-dark-bg-elevated hover:bg-red-600 rounded-full transition text-dark-text-primary hover:text-white shadow-2xl border-2 border-dark-border-primary hover:border-red-500"
+              title="Close (ESC or click outside)"
+            >
+              <X className="h-6 w-6" />
+            </button>
 
           </div>
         </div>

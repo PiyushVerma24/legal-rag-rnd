@@ -272,7 +272,7 @@ export class RAGQueryService {
 
     // Note: full_text and page_count columns might not exist
     const { data: documents } = await supabase
-      .from('hfnai_documents')
+      .from('legalrnd_documents')
       .select('id, title, file_path, file_type')
       .in('id', documentIds);
 
@@ -296,18 +296,18 @@ export class RAGQueryService {
    */
   private async getFallbackChunks(): Promise<any[]> {
     const { data: chunks } = await supabase
-      .from('hfnai_document_chunks')
+      .from('legalrnd_document_chunks')
       .select(`
         *,
-        hfnai_documents!inner(title, author_master_id, file_path, file_type)
+        legalrnd_documents!inner(title, master_id, file_path, file_type)
       `)
       .limit(3);
 
     // Map the nested join structure to flat properties to match enhancedChunks format
     return (chunks || []).map((chunk: any) => ({
       ...chunk,
-      file_path: chunk.hfnai_documents?.file_path,
-      file_type: chunk.hfnai_documents?.file_type
+      file_path: chunk.legalrnd_documents?.file_path,
+      file_type: chunk.legalrnd_documents?.file_type
     }));
   }
 
@@ -501,14 +501,19 @@ Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough
         const { summary, answer, readingTime } = this.parseModelResponse(rawAnswer);
 
         // Extract citations with full details for clickable sources
-        const citations: Citation[] = chunks.map((chunk, index) => {
-          // Generate public URL if file_path exists
+        const citations: Citation[] = await Promise.all(chunks.map(async (chunk, index) => {
+          // Generate SIGNED URL for private access
           let fileUrl = undefined;
           if (chunk.file_path) {
-            const { data } = supabase.storage
+            const { data, error } = await supabase.storage
               .from('legalrnd-documents')
-              .getPublicUrl(chunk.file_path);
-            fileUrl = data.publicUrl;
+              .createSignedUrl(chunk.file_path, 3600); // Valid for 1 hour
+
+            if (data?.signedUrl) {
+              fileUrl = data.signedUrl;
+            } else {
+              console.warn('Failed to sign URL:', error);
+            }
           }
 
           // Normalize file type for frontend
@@ -540,7 +545,7 @@ Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough
             file_url: fileUrl,
             file_type: fileType
           };
-        });
+        }));
 
         console.log(`✅ Successfully generated response with ${model}`);
 

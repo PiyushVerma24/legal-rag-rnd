@@ -48,10 +48,8 @@ export interface LegalDocument {
   created_at: string;
   updated_at?: string;
 
-  // Backward compatibility
-  author_master_id?: string;
-  processed?: boolean;
-  upload_date?: string;
+  // Backward compatibility (mapped)
+  upload_date?: string; // Mapped from created_at in services
 }
 
 // Backward compatibility alias

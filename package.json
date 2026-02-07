@@ -17,6 +17,7 @@
     "clsx": "^2.1.0",
     "dompurify": "^3.3.1",
     "html2canvas": "^1.4.1",
+    "i": "^0.3.7",
     "jspdf": "^3.0.4",
     "lucide-react": "^0.344.0",
     "pdfjs-dist": "^5.4.530",

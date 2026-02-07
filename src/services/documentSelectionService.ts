@@ -4,8 +4,8 @@ export interface DocumentNode {
   id: string;
   title: string;
   file_type: string;
-  processed: boolean;
-  upload_date: string;
+  status: string;
+  upload_date: string; // Aliased from created_at
 }
 
 export interface MasterNode {
@@ -29,7 +29,7 @@ export class DocumentSelectionService {
     try {
       // Fetch all masters
       const { data: mastersData, error: mastersError } = await supabase
-        .from('hfnai_masters')
+        .from('legalrnd_masters')
         .select('id, name, description')
         .order('name', { ascending: true });
 
@@ -37,18 +37,17 @@ export class DocumentSelectionService {
 
       // Fetch all documents with their master info
       const { data: documentsData, error: documentsError } = await supabase
-        .from('hfnai_documents')
+        .from('legalrnd_documents')
         .select(`
           id,
           title,
           file_type,
-          processed,
-          upload_date,
-          author_master_id,
-          hfnai_masters(id, name)
+          status,
+          created_at,
+          master_id,
+          legalrnd_masters(id, name)
         `)
-        .eq('processed', true)
-        .order('upload_date', { ascending: false });
+        .order('created_at', { ascending: false });
 
       if (documentsError) throw documentsError;
 
@@ -68,15 +67,15 @@ export class DocumentSelectionService {
 
       // Add documents to their respective masters
       documentsData.forEach((doc: any) => {
-        const masterId = doc.author_master_id;
+        const masterId = doc.master_id;
         if (masterId && masterMap.has(masterId)) {
           const master = masterMap.get(masterId)!;
           master.documents.push({
             id: doc.id,
             title: doc.title,
             file_type: doc.file_type,
-            processed: doc.processed,
-            upload_date: doc.upload_date
+            status: doc.status,
+            upload_date: doc.created_at
           });
           master.documentCount++;
         }
@@ -114,17 +113,19 @@ export class DocumentSelectionService {
   async getDocumentsByMasters(masterIds: string[]): Promise<{ success: boolean; documents?: DocumentNode[]; error?: string }> {
     try {
       const { data, error } = await supabase
-        .from('hfnai_documents')
-        .select('id, title, file_type, processed, upload_date')
-        .in('author_master_id', masterIds)
-        .eq('processed', true)
-        .order('upload_date', { ascending: false });
+        .from('legalrnd_documents')
+        .select('id, title, file_type, status, created_at')
+        .in('master_id', masterIds)
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
 
       return {
         success: true,
-        documents: data as DocumentNode[]
+        documents: (data || []).map(doc => ({
+          ...doc,
+          upload_date: doc.created_at
+        })) as DocumentNode[]
       };
     } catch (error) {
       console.error('Error getting documents by masters:', error);
@@ -142,7 +143,7 @@ export class DocumentSelectionService {
     try {
       // First, get master IDs from names
       const { data: masters, error: mastersError } = await supabase
-        .from('hfnai_masters')
+        .from('legalrnd_masters')
         .select('id')
         .in('name', masterNames);
 
@@ -156,10 +157,9 @@ export class DocumentSelectionService {
 
       // Get document IDs
       const { data: documents, error: docsError } = await supabase
-        .from('hfnai_documents')
+        .from('legalrnd_documents')
         .select('id')
-        .in('author_master_id', masterIds)
-        .eq('processed', true);
+        .in('master_id', masterIds);
 
       if (docsError) throw docsError;
 
@@ -182,7 +182,7 @@ export class DocumentSelectionService {
   async getAllMasters(): Promise<{ success: boolean; masters?: { id: string; name: string; description?: string }[]; error?: string }> {
     try {
       const { data, error } = await supabase
-        .from('hfnai_masters')
+        .from('legalrnd_masters')
         .select('id, name, description')
         .order('name', { ascending: true });
 

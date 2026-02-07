@@ -37,6 +37,9 @@ export class DocumentUploadService {
 
     try {
       // Stage 1: Validate file
+      console.log('📤📤📤 ========== UPLOAD SERVICE STARTED ==========');
+      console.log(`📄 File: ${file.name}, Master: ${masterName}, AutoProcess: ${autoProcess}`);
+
       onProgress?.({
         stage: 'validating',
         progress: 0,
@@ -97,22 +100,19 @@ export class DocumentUploadService {
 
       const fileType = this.getFileType(file);
 
-      // Extract YouTube video ID if URL provided
-      const youtubeVideoId = youtubeUrl ? this.extractYouTubeVideoId(youtubeUrl) : null;
+      // Extract YouTube video ID if URL provided (for future use/metadata if schema supports it)
+      // const youtubeVideoId = youtubeUrl ? this.extractYouTubeVideoId(youtubeUrl) : null;
 
       const { data: doc, error: docError } = await supabase
         .from('legalrnd_documents')
         .insert({
           title,
-          author_master_id: master.id,
+          master_id: master.id,
           file_path: filePath,
           file_type: fileType,
-          file_size_bytes: file.size,
-          processed: false,
-          processing_status: 'pending',
-          upload_date: new Date().toISOString(),
-          youtube_url: youtubeUrl || null,
-          youtube_video_id: youtubeVideoId
+          file_size: file.size,
+          status: 'pending',
+          youtube_url: youtubeUrl || null
         })
         .select()
         .single();
@@ -137,6 +137,9 @@ export class DocumentUploadService {
           progress: 60,
           message: 'Starting document processing...'
         });
+
+        console.log('🚀 AutoProcess is TRUE - Starting pipeline.processDocument...');
+        console.log(`📄 Document ID to process: ${doc.id}`);
 
         // Start processing in background (don't await)
         this.pipeline.processDocument(doc.id, (status: ProcessingStatus) => {
@@ -220,7 +223,7 @@ export class DocumentUploadService {
         *,
         legalrnd_masters(name)
       `)
-      .order('upload_date', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error('Error fetching documents:', error);
@@ -241,7 +244,7 @@ export class DocumentUploadService {
         legalrnd_masters!inner(name)
       `)
       .eq('legalrnd_masters.name', masterName)
-      .order('upload_date', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error('Error fetching documents by master:', error);
@@ -290,7 +293,7 @@ export class DocumentUploadService {
 
       // Delete chunks first (foreign key dependency)
       const { error: chunksError } = await supabase
-        .from('hfnai_document_chunks')
+        .from('legalrnd_document_chunks')
         .delete()
         .eq('document_id', documentId);
 
@@ -356,26 +359,4 @@ export class DocumentUploadService {
     return this.pipeline.getProcessingStats();
   }
 
-  /**
-   * Extract YouTube video ID from URL
-   */
-  private extractYouTubeVideoId(url: string): string | null {
-    if (!url) return null;
-
-    const patterns = [
-      /youtu\.be\/([a-zA-Z0-9_-]{11})/,
-      /youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
-      /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
-      /youtube\.com\/v\/([a-zA-Z0-9_-]{11})/
-    ];
-
-    for (const pattern of patterns) {
-      const match = url.match(pattern);
-      if (match && match[1]) {
-        return match[1];
-      }
-    }
-
-    return null;
-  }
 }

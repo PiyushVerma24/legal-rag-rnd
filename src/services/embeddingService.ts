@@ -68,18 +68,16 @@ export class EmbeddingService {
         throw new Error('Texts array cannot be empty');
       }
 
-      // Filter out empty texts
-      const validTexts = texts.filter(t => t && t.trim().length > 0);
-      if (validTexts.length === 0) {
-        throw new Error('No valid texts provided');
-      }
+      // REMOVED: Filter out empty texts - now handled by pipeline before calling this
+      // The pipeline ensures all texts are non-empty before sending them here
+      // This prevents count mismatches between chunks and embeddings
 
       // Process in batches to avoid rate limits
-      const batches = this.createBatches(validTexts, this.MAX_BATCH_SIZE);
+      const batches = this.createBatches(texts, this.MAX_BATCH_SIZE);
       const allEmbeddings: number[][] = [];
       let totalTokens = 0;
 
-      console.log(`Generating embeddings for ${validTexts.length} texts in ${batches.length} batches...`);
+      console.log(`Generating embeddings for ${texts.length} texts in ${batches.length} batches...`);
 
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
@@ -105,12 +103,19 @@ export class EmbeddingService {
 
         const data = await response.json();
 
+        // CRITICAL FIX: OpenAI returns indices relative to the batch (0-99, 0-20, etc.)
+        // We need to calculate the absolute index in the full array
+        const batchStartIndex = i * this.MAX_BATCH_SIZE;
+
         // Collect embeddings in order
         for (const item of data.data) {
-          allEmbeddings[item.index] = item.embedding;
+          const absoluteIndex = batchStartIndex + item.index;
+          allEmbeddings[absoluteIndex] = item.embedding;
         }
 
         totalTokens += data.usage.total_tokens;
+
+        console.log(`✅ Batch ${i + 1} complete: ${data.data.length} embeddings added (indices ${batchStartIndex}-${batchStartIndex + data.data.length - 1})`);
 
         // Rate limiting: wait 1 second between batches
         if (i < batches.length - 1) {

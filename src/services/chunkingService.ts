@@ -11,6 +11,16 @@ export interface TextChunk {
   endTimestamp?: number; // Video timestamp in seconds
 }
 
+export interface ChunkValidationResult {
+  valid: boolean;
+  reason?: string;
+  severity: 'error' | 'warning' | 'info';
+  chunkIndex: number;
+  pageNumber?: number;
+  contentPreview: string; // First 100 chars for display
+  tokenCount: number;
+}
+
 export class ChunkingService {
   private readonly MIN_CHUNK_SIZE = 500; // tokens
   private readonly MAX_CHUNK_SIZE = 1000; // tokens
@@ -283,12 +293,61 @@ export class ChunkingService {
   }
 
   /**
-   * Validate chunk quality
+   * Validate chunk quality with detailed results
    */
-  validateChunk(chunk: TextChunk): { valid: boolean; reason?: string } {
-    // Check minimum length
+  validateChunk(chunk: TextChunk): ChunkValidationResult {
+    const contentPreview = chunk.content.substring(0, 100);
+
+    // Check for empty or whitespace-only content
+    if (!chunk.content || chunk.content.trim().length === 0) {
+      return {
+        valid: false,
+        reason: 'Empty content (whitespace only)',
+        severity: 'error',
+        chunkIndex: chunk.chunkIndex,
+        pageNumber: chunk.pageNumber,
+        contentPreview: '[EMPTY]',
+        tokenCount: chunk.tokenCount
+      };
+    }
+
+    // Check minimum content length (stricter than token count)
+    if (chunk.content.trim().length < 10) {
+      return {
+        valid: false,
+        reason: 'Content too short (< 10 characters)',
+        severity: 'error',
+        chunkIndex: chunk.chunkIndex,
+        pageNumber: chunk.pageNumber,
+        contentPreview,
+        tokenCount: chunk.tokenCount
+      };
+    }
+
+    // Check minimum token count
     if (chunk.tokenCount < 50) {
-      return { valid: false, reason: 'Chunk too short (< 50 tokens)' };
+      return {
+        valid: false,
+        reason: 'Chunk too short (< 50 tokens)',
+        severity: 'warning',
+        chunkIndex: chunk.chunkIndex,
+        pageNumber: chunk.pageNumber,
+        contentPreview,
+        tokenCount: chunk.tokenCount
+      };
+    }
+
+    // Check maximum token count
+    if (chunk.tokenCount > 8000) {
+      return {
+        valid: false,
+        reason: 'Chunk exceeds token limit (> 8000 tokens)',
+        severity: 'error',
+        chunkIndex: chunk.chunkIndex,
+        pageNumber: chunk.pageNumber,
+        contentPreview,
+        tokenCount: chunk.tokenCount
+      };
     }
 
     // Check if chunk is mostly whitespace or special characters
@@ -301,22 +360,45 @@ export class ChunkingService {
       alphaNumChars: alphaNumMatches.length,
       ratio: alphaNumRatio.toFixed(2),
       sampleMatches: alphaNumMatches.slice(0, 20).join(''),
-      contentPreview: chunk.content.substring(0, 100)
+      contentPreview
     });
 
     // Lower threshold to 0.4 for scripts with combining characters (Devanagari, Arabic, etc.)
     if (alphaNumRatio < 0.4) {
-      return { valid: false, reason: 'Chunk contains too few alphanumeric characters' };
+      return {
+        valid: false,
+        reason: 'Chunk contains too few alphanumeric characters',
+        severity: 'warning',
+        chunkIndex: chunk.chunkIndex,
+        pageNumber: chunk.pageNumber,
+        contentPreview,
+        tokenCount: chunk.tokenCount
+      };
     }
 
     // Check if chunk has actual sentences
     // Support both Latin (. ! ?) and Devanagari (। ॥) sentence terminators
     const sentenceCount = (chunk.content.match(/[.!?।॥]+/g) || []).length;
     if (sentenceCount === 0 && chunk.tokenCount > 100) {
-      return { valid: false, reason: 'Chunk lacks proper sentence structure' };
+      return {
+        valid: false,
+        reason: 'Chunk lacks proper sentence structure',
+        severity: 'warning',
+        chunkIndex: chunk.chunkIndex,
+        pageNumber: chunk.pageNumber,
+        contentPreview,
+        tokenCount: chunk.tokenCount
+      };
     }
 
-    return { valid: true };
+    return {
+      valid: true,
+      severity: 'info',
+      chunkIndex: chunk.chunkIndex,
+      pageNumber: chunk.pageNumber,
+      contentPreview,
+      tokenCount: chunk.tokenCount
+    };
   }
 
   /**
