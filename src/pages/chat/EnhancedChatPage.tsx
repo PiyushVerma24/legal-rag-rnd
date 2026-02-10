@@ -30,6 +30,9 @@ import {
   MicOff
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ChatSession } from '@/types/chatSession';
+import { migrateOldChatToSessions } from '@/utils/chatMigration';
+import ChatHistorySidebar from '@/components/ChatHistorySidebar';
 
 export default function EnhancedChatPage() {
   const navigate = useNavigate();
@@ -37,7 +40,7 @@ export default function EnhancedChatPage() {
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
-  const [selectedMasters, setSelectedMasters] = useState<string[]>([]);
+
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [chatTitle, setChatTitle] = useState('');
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -47,7 +50,25 @@ export default function EnhancedChatPage() {
   const [showDebugModal, setShowDebugModal] = useState(false);
   const [debugData, setDebugData] = useState<{ systemPrompt: string; userPrompt: string } | null>(null);
   const [isListening, setIsListening] = useState(false);
+  // New state for LLM Response modal and session cost tracking
+  const [showLLMResponseModal, setShowLLMResponseModal] = useState(false);
+  const [llmResponseData, setLLMResponseData] = useState<{
+    rawResponse: string;
+    tokenUsage: {
+      embeddingTokens: number;
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+      grandTotal: number;
+    };
+    estimatedCost: number;
+    aiModel?: string;
+  } | null>(null);
+  const [sessionCost, setSessionCost] = useState<number>(0);
   const [recognition, setRecognition] = useState<any>(null);
+  // Chat session state
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -119,41 +140,147 @@ export default function EnhancedChatPage() {
 
 
 
-  // Auto-save to local storage (USER-SPECIFIC)
+  // Auto-save messages to current session
   useEffect(() => {
-    if (messages.length > 0 && currentUser) {
-      chatHistoryService.saveToLocalStorage(`current_${currentUser.id}`, messages);
-    }
-  }, [messages, currentUser]);
+    if (currentUser && currentSessionId && messages.length > 0) {
+      chatHistoryService.saveSessionMessages(currentUser.id, currentSessionId, messages);
 
-  // Clear chat when user changes (PRIVACY FIX)
+      // Update the session list specifically to refresh "last message" and timestamp
+      // This ensures the sidebar stays in sync with the live chat
+      const updatedSessions = chatHistoryService.getChatSessions(currentUser.id);
+      setChatSessions(updatedSessions);
+    }
+  }, [messages, currentUser, currentSessionId]);
+
+  // Persist session cost to localStorage
+  useEffect(() => {
+    if (currentUser && sessionCost > 0) {
+      localStorage.setItem(`legalrnd_session_cost_${currentUser.id}`, sessionCost.toString());
+    }
+  }, [sessionCost, currentUser]);
+
+  // Initialize chat sessions when user changes
   useEffect(() => {
     if (currentUser) {
-      // Load this user's chat
-      loadLocalChat(currentUser.id);
+      // Run migration if needed
+      migrateOldChatToSessions(currentUser.id);
+
+      // Load sessions
+      const sessions = chatHistoryService.getChatSessions(currentUser.id);
+      setChatSessions(sessions);
+
+
+      // Always start with a new chat (clean slate) - BUT DO NOT CREATE SESSION YET
+      // handleNewChat(); 
+      // Instead, just clear state and let handleNewChat do the rest (which now sets null)
+      setCurrentSessionId(null);
+      setMessages([]);
+
+      // Load session cost from localStorage
+      const savedCost = localStorage.getItem(`legalrnd_session_cost_${currentUser.id}`);
+      if (savedCost) {
+        setSessionCost(parseFloat(savedCost));
+      } else {
+        setSessionCost(0);
+      }
     } else {
       // No user = clear everything
       setMessages([]);
       setSelectedDocumentIds([]);
-      setSelectedMasters([]);
+
+      setSessionCost(0);
+      setCurrentSessionId(null);
+      setChatSessions([]);
     }
   }, [currentUser?.id]);
 
   const loadUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user }, error } = await supabase.auth.getUser();
+
+    if (error || !user) {
+      // Try to get user from sessionStorage (selected on AuthPage)
+      const storedUser = sessionStorage.getItem('selectedUser');
+
+      if (storedUser) {
+        try {
+          const parsedUser = JSON.parse(storedUser);
+          setCurrentUser(parsedUser as any);
+          return;
+        } catch (e) {
+          console.error('Failed to parse stored user:', e);
+        }
+      }
+
+      // Fallback to default user if no session data
+      const defaultUser = {
+        id: 'lawyer1@legalrnd.com',
+        email: 'lawyer1@legalrnd.com',
+        user_metadata: {
+          name: 'Adv. Rajesh Kumar',
+          role: 'Lawyer'
+        }
+      };
+
+      console.log('⚠️ No user selected, using default:', defaultUser.user_metadata.name);
+      setCurrentUser(defaultUser as any);
+      return;
+    }
+
+    console.log('✅ loadUser: User authenticated:', { id: user.id, email: user.email });
     setCurrentUser(user);
     if (user) {
       loadSavedChats(user.id);
     }
   };
 
-  const loadLocalChat = (userId: string) => {
-    // User-specific localStorage key
-    const localMessages = chatHistoryService.loadFromLocalStorage(`current_${userId}`);
-    if (localMessages && localMessages.length > 0) {
-      setMessages(localMessages);
-    } else {
-      setMessages([]); // Start fresh if no saved chat
+  /**
+   * ========================================
+   * SESSION MANAGEMENT FUNCTIONS
+   * ========================================
+   */
+
+  const loadSession = (sessionId: string) => {
+    if (!currentUser) return;
+
+    const messages = chatHistoryService.loadSessionMessages(currentUser.id, sessionId);
+    setMessages(messages);
+    setCurrentSessionId(sessionId);
+
+    // Update active status
+    chatHistoryService.setActiveSession(currentUser.id, sessionId);
+    const sessions = chatHistoryService.getChatSessions(currentUser.id);
+    setChatSessions(sessions);
+  };
+
+  const handleNewChat = () => {
+    // OLD: Create session immediately
+    // if (!currentUser) return;
+    // const newSession = chatHistoryService.createChatSession(currentUser.id);
+    // setCurrentSessionId(newSession.id);
+    // setMessages([]);
+    // setChatSessions([newSession, ...chatSessions]);
+
+    // NEW: Just clear the UI. Session created on first message.
+    setCurrentSessionId(null);
+    setMessages([]);
+    setSessionCost(0);
+    // Don't touch chatSessions yet (sidebar remains as is until new session created)
+  };
+
+  const handleSessionDelete = (sessionId: string) => {
+    if (!currentUser) return;
+
+    chatHistoryService.deleteSession(currentUser.id, sessionId);
+    const sessions = chatHistoryService.getChatSessions(currentUser.id);
+    setChatSessions(sessions);
+
+    // If deleted current session, load another or create new
+    if (sessionId === currentSessionId) {
+      if (sessions.length > 0) {
+        loadSession(sessions[0].id);
+      } else {
+        handleNewChat();
+      }
     }
   };
 
@@ -166,6 +293,12 @@ export default function EnhancedChatPage() {
 
   const handleSendMessage = async (text: string) => {
     if (!text.trim() || isLoading) return;
+
+    // Check if user is logged in
+    if (!currentUser) {
+      toast.error('Please wait for authentication to complete or log in again');
+      return;
+    }
 
     // Check if documents are selected (if not, show toast)
     // if (selectedDocumentIds.length === 0) {
@@ -190,15 +323,25 @@ export default function EnhancedChatPage() {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 100);
 
-    try {
-      console.log('🔍 Asking question:', questionText);
-      console.log('📚 Selected documents:', selectedDocumentIds.length);
-      console.log('👨‍🏫 Selected masters:', selectedMasters);
+    // --- LAZY SESSION CREATION ---
+    let activeSessionId = currentSessionId;
+    if (!activeSessionId && currentUser) {
+      console.log('Creates new session on first message...');
+      const newSession = chatHistoryService.createChatSession(currentUser.id);
+      activeSessionId = newSession.id;
+      setCurrentSessionId(newSession.id);
 
+      // Update sidebar immediately
+      setChatSessions(prev => [newSession, ...prev]);
+    }
+    // -----------------------------
+
+    try {
       const response = await ragService.askQuestion(questionText, {
-        preceptorId: currentUser?.id,
+        lawyerId: currentUser?.email,  // ✅ FIXED: Pass email for RLS policy (not ID)
         // selectedDocumentIds: selectedDocumentIds.length > 0 ? selectedDocumentIds : undefined,
-        // selectedMasters: selectedMasters.length > 0 ? selectedMasters : undefined
+        // selectedMasters: selectedMasters.length > 0 ? selectedMasters : undefined,
+        sessionId: activeSessionId || undefined // Pass session ID if available (optional for analytics)
       });
 
       const assistantMessage: ChatMessage = {
@@ -210,8 +353,17 @@ export default function EnhancedChatPage() {
         timestamp: new Date(),
         citations: response.citations,
         aiModel: response.metadata?.model,
-        debug: response.debug
+        debug: response.debug,
+        // Capture new fields for LLM Response display
+        rawResponse: response.rawResponse,
+        tokenUsage: response.tokenUsage,
+        estimatedCost: response.estimatedCost
       };
+
+      // Update session cost
+      if (response.estimatedCost) {
+        setSessionCost(prev => prev + response.estimatedCost!);
+      }
 
       setMessages(prev => [...prev, assistantMessage]);
 
@@ -253,10 +405,11 @@ export default function EnhancedChatPage() {
     }
 
     const title = chatTitle || `Chat ${new Date().toLocaleDateString()}`;
-    const result = await chatHistoryService.saveChat(currentUser.id, messages, {
-      chatTitle: title,
-      selectedDocuments: selectedDocumentIds,
-      selectedMasters
+    const result = await chatHistoryService.saveChat({
+      title,
+      lawyerId: currentUser.id,
+      messages,
+      selectedDocumentIds
     });
 
     if (result.success) {
@@ -273,8 +426,7 @@ export default function EnhancedChatPage() {
     const result = await chatHistoryService.loadChat(chatId);
     if (result.success && result.chat) {
       setMessages(result.chat.messages);
-      setSelectedDocumentIds(result.chat.selected_documents || []);
-      setSelectedMasters(result.chat.selected_masters || []);
+      setSelectedDocumentIds(result.chat.selected_document_ids || []);
       setShowHistoryPanel(false);
       toast.success('Chat loaded');
     } else {
@@ -321,8 +473,10 @@ export default function EnhancedChatPage() {
   const handleClearChat = () => {
     if (window.confirm('Clear all messages? This cannot be undone.')) {
       setMessages([]);
+      setSessionCost(0);
       if (currentUser) {
         chatHistoryService.clearLocalStorage(`current_${currentUser.id}`);
+        localStorage.removeItem(`legalrnd_session_cost_${currentUser.id}`);
       }
       toast.success('Chat cleared');
     }
@@ -339,9 +493,8 @@ export default function EnhancedChatPage() {
     }
   };
 
-  const handleSelectionChange = (docIds: string[], masterNames: string[]) => {
+  const handleSelectionChange = (docIds: string[]) => {
     setSelectedDocumentIds(docIds);
-    setSelectedMasters(masterNames);
   };
 
   return (
@@ -359,6 +512,16 @@ export default function EnhancedChatPage() {
               </p>
             </div>
           </div>
+
+          {/* Session Cost Display */}
+          {sessionCost > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-dark-bg-elevated rounded-lg border border-dark-border-primary">
+              <span className="text-xs text-dark-text-secondary">Session Cost:</span>
+              <span className="text-xs font-mono font-bold text-dark-accent-orange">
+                ${sessionCost.toFixed(6)}
+              </span>
+            </div>
+          )}
 
           <div className="flex items-center gap-2">
             <button
@@ -405,11 +568,28 @@ export default function EnhancedChatPage() {
 
       <div className="flex-1 flex overflow-x-auto overflow-y-hidden" style={{ WebkitOverflowScrolling: 'touch' }}>
         {/* Sidebar - Document Tree Selector (REMOVED) */}
-        <div className="w-72 sm:w-80 flex-shrink-0 bg-dark-bg-secondary border-r border-dark-border-primary shadow-lg hidden md:block">
-          <DocumentTreeSelector
-            onSelectionChange={handleSelectionChange}
-            className="h-full"
-          />
+        <div className="w-72 sm:w-80 flex-shrink-0 bg-dark-bg-secondary border-r border-dark-border-primary shadow-lg hidden md:flex md:flex-col">
+          {/* Document Tree Selector */}
+          <div className="flex-shrink-0 border-b border-dark-border-primary">
+            <DocumentTreeSelector
+              onSelectionChange={handleSelectionChange}
+              className="h-auto"
+            />
+          </div>
+
+          {/* Chat History Sidebar */}
+          {currentUser && (
+            <div className="flex-1 overflow-hidden">
+              <ChatHistorySidebar
+                userId={currentUser.id}
+                sessions={chatSessions}
+                currentSessionId={currentSessionId}
+                onSessionSelect={loadSession}
+                onNewChat={handleNewChat}
+                onSessionDelete={handleSessionDelete}
+              />
+            </div>
+          )}
         </div>
 
         {/* Main Chat Area */}
@@ -516,6 +696,26 @@ export default function EnhancedChatPage() {
                       >
                         <Code className="h-3 w-3" />
                         Prompt
+                      </button>
+                    )}
+                    {/* New LLM Response button */}
+                    {message.rawResponse && message.tokenUsage && (
+                      <button
+                        onClick={() => {
+                          setLLMResponseData({
+                            rawResponse: message.rawResponse!,
+                            tokenUsage: message.tokenUsage!,
+                            estimatedCost: message.estimatedCost || 0,
+                            aiModel: message.aiModel
+                          });
+                          setShowLLMResponseModal(true);
+                        }}
+                        className={`text-xs p-1.5 rounded transition flex items-center gap-1 ml-2 ${message.type === 'user' ? 'text-dark-text-secondary hover:bg-dark-bg-secondary' : 'text-dark-text-secondary hover:bg-dark-bg-elevated'
+                          }`}
+                        title="View LLM Response Details"
+                      >
+                        <FileText className="h-3 w-3" />
+                        LLM Response ({(message.tokenUsage.grandTotal / 1000).toFixed(1)}K)
                       </button>
                     )}
                   </div>
@@ -685,6 +885,90 @@ export default function EnhancedChatPage() {
             <div className="p-4 border-t border-dark-border-primary flex justify-end">
               <button
                 onClick={() => setShowDebugModal(false)}
+                className="px-4 py-2 bg-dark-accent-orange text-white rounded-lg hover:bg-dark-accent-orangeHover transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New LLM Response Details Modal */}
+      {showLLMResponseModal && llmResponseData && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-dark-bg-secondary rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col border border-dark-border-primary">
+            <div className="p-4 border-b border-dark-border-primary flex justify-between items-center bg-dark-bg-elevated rounded-t-lg">
+              <h3 className="text-lg font-semibold text-dark-text-primary flex items-center gap-2">
+                <FileText className="h-5 w-5 text-dark-accent-orange" />
+                LLM Response Details
+              </h3>
+              <button
+                onClick={() => setShowLLMResponseModal(false)}
+                className="text-dark-text-secondary hover:text-dark-text-primary"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 font-mono text-xs md:text-sm">
+              <div className="space-y-6">
+                {/* Token Usage & Cost Summary Card */}
+                <div className="bg-dark-bg-elevated p-4 rounded-lg border border-dark-border-primary">
+                  <h4 className="font-bold text-dark-text-primary mb-3">Token Usage & Cost</h4>
+                  <div className="space-y-3">
+                    {/* AI Model - Full width */}
+                    {llmResponseData.aiModel && (
+                      <div className="pb-3 border-b border-dark-border-primary">
+                        <span className="text-dark-text-secondary text-sm">AI Model:</span>
+                        <span className="ml-2 text-dark-text-primary font-mono text-sm font-semibold">
+                          {llmResponseData.aiModel}
+                        </span>
+                      </div>
+                    )}
+                    {/* Token counts grid */}
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="text-dark-text-secondary">Embedding Tokens:</span>
+                        <span className="ml-2 text-dark-text-primary font-mono">{llmResponseData.tokenUsage.embeddingTokens.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-dark-text-secondary">LLM Prompt Tokens:</span>
+                        <span className="ml-2 text-dark-text-primary font-mono">{llmResponseData.tokenUsage.promptTokens.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-dark-text-secondary">LLM Completion Tokens:</span>
+                        <span className="ml-2 text-dark-text-primary font-mono">{llmResponseData.tokenUsage.completionTokens.toLocaleString()}</span>
+                      </div>
+                      <div className="col-span-2 pt-2 border-t border-dark-border-primary">
+                        <span className="text-dark-text-secondary font-semibold">Grand Total (All Tokens):</span>
+                        <span className="ml-2 text-dark-text-primary font-mono font-bold text-base">{llmResponseData.tokenUsage.grandTotal.toLocaleString()}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-dark-text-secondary font-semibold">Estimated Cost:</span>
+                        <span className="ml-2 text-dark-accent-orange font-mono font-bold text-base">
+                          ${llmResponseData.estimatedCost.toFixed(6)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Raw LLM Response */}
+                <div>
+                  <h4 className="font-bold text-dark-text-primary mb-2 border-b border-dark-border-primary pb-1">
+                    Raw LLM Response
+                  </h4>
+                  <pre className="bg-dark-bg-primary p-4 rounded-lg whitespace-pre-wrap text-dark-text-secondary max-h-96 overflow-y-auto">
+                    {llmResponseData.rawResponse}
+                  </pre>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-dark-border-primary flex justify-end">
+              <button
+                onClick={() => setShowLLMResponseModal(false)}
                 className="px-4 py-2 bg-dark-accent-orange text-white rounded-lg hover:bg-dark-accent-orangeHover transition"
               >
                 Close

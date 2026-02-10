@@ -13,8 +13,20 @@ export default function AuthPage() {
     { email: 'lawyer3@legalrnd.com', name: 'Adv. Amit Verma', role: 'Lawyer', icon: '⚖️' }
   ];
 
-  const handleQuickLogin = (email: string, name: string) => {
+  const handleQuickLogin = (email: string, name: string, role: string) => {
     setSelectedUser(email);
+
+    // Store selected user in sessionStorage for chat page
+    const userData = {
+      id: email,
+      email: email,
+      user_metadata: {
+        name: name,
+        role: role
+      }
+    };
+    sessionStorage.setItem('selectedUser', JSON.stringify(userData));
+
     toast.success(`Welcome ${name}! ⚖️`);
 
     // Auto-navigate after a brief moment
@@ -44,7 +56,7 @@ export default function AuthPage() {
           {testUsers.map((user) => (
             <div
               key={user.email}
-              onClick={() => handleQuickLogin(user.email, user.name)}
+              onClick={() => handleQuickLogin(user.email, user.name, user.role)}
               className={`
                 flex items-center gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all
                 ${selectedUser === user.email

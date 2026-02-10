@@ -40,6 +40,16 @@ interface RAGResponse {
     systemPrompt: string;
     userPrompt: string;
   };
+  // New fields for LLM Response display
+  rawResponse?: string; // Unprocessed LLM response before parsing
+  tokenUsage?: {
+    embeddingTokens: number;    // Tokens used for embedding generation
+    promptTokens: number;        // LLM prompt tokens
+    completionTokens: number;    // LLM completion tokens
+    totalTokens: number;         // LLM total (prompt + completion)
+    grandTotal: number;          // Overall total (embedding + LLM)
+  };
+  estimatedCost?: number; // Cost in USD for this query
 }
 
 export class RAGQueryService {
@@ -65,10 +75,14 @@ export class RAGQueryService {
       preceptorId?: string; // Backward compatibility
       selectedDocumentIds?: string[];
       selectedMasters?: string[];
+      sessionId?: string; // For analytics tracking
     } = {}
   ): Promise<RAGResponse> {
     const { lawyerId, preceptorId, selectedDocumentIds, selectedMasters } = options;
-    const userId = lawyerId || preceptorId; // Support both for backward compatibility
+    const userId = lawyerId || preceptorId;
+
+
+    console.log('👤 [FLOW] User ID:', userId);
     const startTime = Date.now();
 
     try {
@@ -170,11 +184,11 @@ export class RAGQueryService {
           };
         }
 
-        return this.generateResponseWithFallback(question, fallbackChunks);
+        return this.generateResponseWithFallback(question, fallbackChunks, embeddingResult.tokenCount);
       }
 
       // 5. Generate response with multi-model fallback
-      const response = await this.generateResponseWithFallback(question, enhancedChunks);
+      const response = await this.generateResponseWithFallback(question, enhancedChunks, embeddingResult.tokenCount);
 
       // 6. Log AI usage with comprehensive details
       const documentsUsed = [...new Set(enhancedChunks.map(c => c.document_title))];
@@ -186,6 +200,7 @@ export class RAGQueryService {
         response.answer,
         documentsUsed
       );
+      console.log('✅ [FLOW] logAIUsage completed');
 
       const duration = Date.now() - startTime;
       console.log(`✅ RAG query completed in ${duration}ms`);
@@ -366,7 +381,11 @@ export class RAGQueryService {
   /**
    * Generate response with multi-model fallback
    */
-  private async generateResponseWithFallback(question: string, chunks: any[]): Promise<RAGResponse> {
+  private async generateResponseWithFallback(
+    question: string,
+    chunks: any[],
+    embeddingTokens: number = 0
+  ): Promise<RAGResponse> {
     // Build context from chunks
     const context = chunks.map((chunk, idx) => {
       const pageInfo = chunk.page_number ? `, page ${chunk.page_number}` : '';
@@ -500,6 +519,15 @@ Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough
         const rawAnswer = data.choices[0].message.content;
         const { summary, answer, readingTime } = this.parseModelResponse(rawAnswer);
 
+        // Extract token usage from API response
+        const promptTokens = data.usage?.prompt_tokens || 0;
+        const completionTokens = data.usage?.completion_tokens || 0;
+        const totalTokens = data.usage?.total_tokens || (promptTokens + completionTokens);
+        const grandTotal = embeddingTokens + totalTokens;
+
+        // Calculate cost estimate based on grand total (embedding + LLM)
+        const costEstimate = this.estimateCost(model, grandTotal);
+
         // Extract citations with full details for clickable sources
         const citations: Citation[] = await Promise.all(chunks.map(async (chunk, index) => {
           // Generate SIGNED URL for private access
@@ -559,12 +587,22 @@ Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough
             model,
             chunkCount: chunks.length,
             embeddingModel: 'text-embedding-3-small',
-            totalTokens: data.usage?.total_tokens
+            totalTokens
           },
           debug: {
             systemPrompt,
             userPrompt
-          }
+          },
+          // New fields for LLM Response display
+          rawResponse: rawAnswer,
+          tokenUsage: {
+            embeddingTokens,
+            promptTokens,
+            completionTokens,
+            totalTokens,
+            grandTotal
+          },
+          estimatedCost: costEstimate
         };
       } catch (error) {
         console.warn(`Failed to generate with ${model}:`, error);
@@ -589,6 +627,14 @@ Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough
     documents?: string[],
     costUSD?: number
   ): Promise<void> {
+    console.log('🚀 logAIUsage function STARTED with params:', {
+      lawyerId,
+      model,
+      tokenCount,
+      hasResponse: !!response,
+      documentsCount: documents?.length || 0
+    });
+
     try {
       const promptTokens = tokenCount;
       const completionTokens = response ? Math.ceil(response.length / 4) : 0;
@@ -611,14 +657,12 @@ Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough
         created_at: new Date().toISOString()
       };
 
-      console.log('📊 Logging AI usage:', {
-        model,
-        tokens: totalTokens,
-        cost: estimatedCost,
-        docs: documents?.length || 0
-      });
 
-      await supabase.from('legalrnd_ai_usage_log').insert(logEntry);
+      const { data, error } = await supabase.from('legalrnd_ai_usage_log').insert(logEntry);
+
+      if (error) {
+        console.error('❌ Failed to insert AI usage log:', error.message);
+      }
     } catch (error) {
       // Silently fail - logging shouldn't break the query
       console.warn('Failed to log AI usage:', error);

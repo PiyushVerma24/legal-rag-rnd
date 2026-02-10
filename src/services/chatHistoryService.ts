@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { ChatSession } from '@/types/chatSession';
 
 export interface ChatMessage {
   id: string;
@@ -16,6 +17,16 @@ export interface ChatMessage {
     systemPrompt: string;
     userPrompt: string;
   };
+  // New fields for LLM Response display
+  rawResponse?: string;
+  tokenUsage?: {
+    embeddingTokens: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    grandTotal: number;
+  };
+  estimatedCost?: number;
 }
 
 export interface Citation {
@@ -38,65 +49,197 @@ export interface SavedChat {
   id: string;
   lawyer_id: string;
   preceptor_id?: string; // Backward compatibility
-  chat_title?: string;
+  title: string;
   messages: ChatMessage[];
-  ai_model?: string;
-  selected_documents?: string[];
-  selected_masters?: string[];
-  is_pinned: boolean;
-  metadata?: Record<string, any>;
-  created_at: string;
-  updated_at: string;
-  saved_at: string;
+  selected_document_ids?: string[];
+  is_pinned?: boolean;
+  saved_at?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export class ChatHistoryService {
   /**
-   * Save a chat conversation to the database
+   * ========================================
+   * SESSION MANAGEMENT METHODS (NEW)
+   * ========================================
    */
-  async saveChat(
-    lawyerId: string,
-    messages: ChatMessage[],
-    options: {
-      chatTitle?: string;
-      aiModel?: string;
-      selectedDocuments?: string[];
-      selectedMasters?: string[];
-      isPinned?: boolean;
-      metadata?: Record<string, any>;
-    } = {}
-  ): Promise<{ success: boolean; chatId?: string; error?: string }> {
+
+  /**
+   * Get all chat sessions for a user
+   */
+  getChatSessions(userId: string): ChatSession[] {
     try {
-      const { data, error } = await supabase
-        .from('legalrnd_saved_chats')
-        .insert({
-          lawyer_id: lawyerId,
-          chat_title: options.chatTitle || `Chat ${new Date().toLocaleDateString()}`,
-          messages: JSON.stringify(messages),
-          ai_model: options.aiModel,
-          selected_documents: options.selectedDocuments || [],
-          selected_masters: options.selectedMasters || [],
-          is_pinned: options.isPinned || false,
-          metadata: options.metadata || {},
-          saved_at: new Date().toISOString()
-        })
-        .select('id')
-        .single();
-
-      if (error) throw error;
-
-      return {
-        success: true,
-        chatId: data.id
-      };
+      const key = `legalrnd_chat_sessions_${userId}`;
+      const data = localStorage.getItem(key);
+      return data ? JSON.parse(data) : [];
     } catch (error) {
-      console.error('Error saving chat:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      };
+      console.error('Error loading chat sessions:', error);
+      return [];
     }
   }
+
+  /**
+   * Create a new chat session
+   */
+  createChatSession(userId: string): ChatSession {
+    const sessionId = `session_${Date.now()}`;
+    const session: ChatSession = {
+      id: sessionId,
+      title: "New Chat",
+      timestamp: new Date().toISOString(),
+      messageCount: 0,
+      lastMessage: "",
+      isActive: true
+    };
+
+    const sessions = this.getChatSessions(userId);
+
+    // Mark all others as inactive
+    sessions.forEach(s => s.isActive = false);
+
+    // Add new session at the beginning
+    sessions.unshift(session);
+
+    // Save
+    const key = `legalrnd_chat_sessions_${userId}`;
+    localStorage.setItem(key, JSON.stringify(sessions));
+
+    return session;
+  }
+
+  /**
+   * Load messages for a specific session
+   */
+  loadSessionMessages(userId: string, sessionId: string): ChatMessage[] {
+    try {
+      const key = `legalrnd_chat_session_${sessionId}_${userId}`;
+      const data = localStorage.getItem(key);
+      return data ? JSON.parse(data) : [];
+    } catch (error) {
+      console.error('Error loading session messages:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Save messages for a specific session
+   */
+  saveSessionMessages(userId: string, sessionId: string, messages: ChatMessage[]): void {
+    try {
+      const key = `legalrnd_chat_session_${sessionId}_${userId}`;
+      localStorage.setItem(key, JSON.stringify(messages));
+
+      // Update session metadata
+      this.updateSessionMetadata(userId, sessionId, messages);
+    } catch (error) {
+      console.error('Error saving session messages:', error);
+    }
+  }
+
+  /**
+   * Update session metadata (title, message count, last message)
+   */
+  updateSessionMetadata(userId: string, sessionId: string, messages: ChatMessage[]): void {
+    try {
+      const sessions = this.getChatSessions(userId);
+      const session = sessions.find(s => s.id === sessionId);
+
+      if (session && messages.length > 0) {
+        session.title = messages[0].content.substring(0, 50) + (messages[0].content.length > 50 ? '...' : '');
+        session.messageCount = messages.length;
+        session.lastMessage = messages[messages.length - 1].content.substring(0, 100);
+        session.timestamp = messages[messages.length - 1].timestamp.toString();
+
+        const key = `legalrnd_chat_sessions_${userId}`;
+        localStorage.setItem(key, JSON.stringify(sessions));
+      }
+    } catch (error) {
+      console.error('Error updating session metadata:', error);
+    }
+  }
+
+  /**
+   * Set active session
+   */
+  setActiveSession(userId: string, sessionId: string): void {
+    try {
+      const sessions = this.getChatSessions(userId);
+      sessions.forEach(s => s.isActive = (s.id === sessionId));
+
+      const key = `legalrnd_chat_sessions_${userId}`;
+      localStorage.setItem(key, JSON.stringify(sessions));
+    } catch (error) {
+      console.error('Error setting active session:', error);
+    }
+  }
+
+  /**
+   * Delete a chat session
+   */
+  deleteSession(userId: string, sessionId: string): void {
+    try {
+      // Remove session messages
+      const sessionKey = `legalrnd_chat_session_${sessionId}_${userId}`;
+      localStorage.removeItem(sessionKey);
+
+      // Remove from sessions list
+      let sessions = this.getChatSessions(userId);
+      sessions = sessions.filter(s => s.id !== sessionId);
+
+      const key = `legalrnd_chat_sessions_${userId}`;
+      localStorage.setItem(key, JSON.stringify(sessions));
+    } catch (error) {
+      console.error('Error deleting session:', error);
+    }
+  }
+
+  /**
+   * ========================================
+   * LEGACY METHODS (EXISTING)
+   * ========================================
+   */
+
+  /**
+   * Save chat to local storage (fallback/temporary storage)
+   */
+  saveToLocalStorage(key: string, messages: ChatMessage[]): void {
+    try {
+      localStorage.setItem(`legalrnd_chat_${key}`, JSON.stringify(messages));
+    } catch (error) {
+      console.error('Error saving to local storage:', error);
+    }
+  }
+
+  /**
+   * Load chat from local storage
+   */
+  loadFromLocalStorage(key: string): ChatMessage[] | null {
+    try {
+      const data = localStorage.getItem(`legalrnd_chat_${key}`);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      console.error('Error loading from local storage:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Clear local storage chat
+   */
+  clearLocalStorage(key: string): void {
+    try {
+      localStorage.removeItem(`legalrnd_chat_${key}`);
+    } catch (error) {
+      console.error('Error clearing local storage:', error);
+    }
+  }
+
+  /**
+   * ========================================
+   * DATABASE METHODS (LEGACY - FOR SAVED CHATS)
+   * ========================================
+   */
 
   /**
    * Load all saved chats for a lawyer
@@ -149,6 +292,45 @@ export class ChatHistoryService {
   }
 
   /**
+   * Save a chat to the database
+   */
+  async saveChat(chat: {
+    title: string;
+    lawyerId: string;
+    messages: ChatMessage[];
+    selectedDocumentIds?: string[];
+  }): Promise<{ success: boolean; chatId?: string; error?: string }> {
+    try {
+      const { data, error } = await supabase
+        .from('legalrnd_saved_chats')
+        .insert({
+          title: chat.title,
+          lawyer_id: chat.lawyerId,
+          conversation: chat.messages,
+          selected_document_ids: chat.selectedDocumentIds || [],
+          is_pinned: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        chatId: data.id
+      };
+    } catch (error) {
+      console.error('Error saving chat:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
    * Load a specific chat by ID
    */
   async loadChat(chatId: string): Promise<{ success: boolean; chat?: SavedChat; error?: string }> {
@@ -162,12 +344,12 @@ export class ChatHistoryService {
       if (error) throw error;
 
       // Parse messages from JSONB
-      const chat = {
+      const chat: SavedChat = {
         ...data,
         messages: typeof data.messages === 'string'
           ? JSON.parse(data.messages)
           : data.messages
-      } as SavedChat;
+      };
 
       return {
         success: true,
@@ -175,56 +357,6 @@ export class ChatHistoryService {
       };
     } catch (error) {
       console.error('Error loading chat:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      };
-    }
-  }
-
-  /**
-   * Update a saved chat
-   */
-  async updateChat(
-    chatId: string,
-    updates: {
-      chatTitle?: string;
-      messages?: ChatMessage[];
-      isPinned?: boolean;
-      metadata?: Record<string, any>;
-    }
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      const updateData: any = {
-        updated_at: new Date().toISOString()
-      };
-
-      if (updates.chatTitle !== undefined) {
-        updateData.chat_title = updates.chatTitle;
-      }
-
-      if (updates.messages !== undefined) {
-        updateData.messages = JSON.stringify(updates.messages);
-      }
-
-      if (updates.isPinned !== undefined) {
-        updateData.is_pinned = updates.isPinned;
-      }
-
-      if (updates.metadata !== undefined) {
-        updateData.metadata = updates.metadata;
-      }
-
-      const { error } = await supabase
-        .from('legalrnd_saved_chats')
-        .update(updateData)
-        .eq('id', chatId);
-
-      if (error) throw error;
-
-      return { success: true };
-    } catch (error) {
-      console.error('Error updating chat:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -255,37 +387,24 @@ export class ChatHistoryService {
   }
 
   /**
-   * Save chat to local storage (fallback/temporary storage)
+   * Toggle pin status of a chat
    */
-  saveToLocalStorage(key: string, messages: ChatMessage[]): void {
+  async updateChatPin(chatId: string, isPinned: boolean): Promise<{ success: boolean; error?: string }> {
     try {
-      localStorage.setItem(`legalrnd_chat_${key}`, JSON.stringify(messages));
-    } catch (error) {
-      console.error('Error saving to local storage:', error);
-    }
-  }
+      const { error } = await supabase
+        .from('legalrnd_saved_chats')
+        .update({ is_pinned: isPinned })
+        .eq('id', chatId);
 
-  /**
-   * Load chat from local storage
-   */
-  loadFromLocalStorage(key: string): ChatMessage[] | null {
-    try {
-      const data = localStorage.getItem(`legalrnd_chat_${key}`);
-      return data ? JSON.parse(data) : null;
-    } catch (error) {
-      console.error('Error loading from local storage:', error);
-      return null;
-    }
-  }
+      if (error) throw error;
 
-  /**
-   * Clear local storage chat
-   */
-  clearLocalStorage(key: string): void {
-    try {
-      localStorage.removeItem(`legalrnd_chat_${key}`);
+      return { success: true };
     } catch (error) {
-      console.error('Error clearing local storage:', error);
+      console.error('Error updating chat pin:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
     }
   }
 }
