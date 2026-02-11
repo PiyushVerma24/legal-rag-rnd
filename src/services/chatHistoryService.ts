@@ -66,13 +66,44 @@ export class ChatHistoryService {
    */
 
   /**
-   * Get all chat sessions for a user
+   * Get all chat sessions for a user (Async)
    */
-  getChatSessions(userId: string): ChatSession[] {
+  async getChatSessions(userId: string): Promise<ChatSession[]> {
     try {
+      // Fetch from Supabase
+      const { data, error } = await supabase
+        .from('legalrnd_saved_chats')
+        .select('id, title, updated_at, conversation')
+        .eq('lawyer_id', userId)
+        .order('updated_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Map to ChatSession format
+      // Note: We don't persist 'isActive' in DB. UI handles it via selected ID.
+      return data.map(chat => {
+        const messages = typeof chat.conversation === 'string'
+          ? JSON.parse(chat.conversation)
+          : chat.conversation as ChatMessage[];
+
+        const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+
+        return {
+          id: chat.id,
+          title: chat.title,
+          timestamp: chat.updated_at,
+          messageCount: messages.length,
+          lastMessage: lastMsg ? (lastMsg.content.substring(0, 100) + (lastMsg.content.length > 100 ? '...' : '')) : '',
+          isActive: false
+        };
+      });
+
+      // OLD LOCAL STORAGE CODE (Commented out)
+      /*
       const key = `legalrnd_chat_sessions_${userId}`;
       const data = localStorage.getItem(key);
       return data ? JSON.parse(data) : [];
+      */
     } catch (error) {
       console.error('Error loading chat sessions:', error);
       return [];
@@ -80,9 +111,49 @@ export class ChatHistoryService {
   }
 
   /**
-   * Create a new chat session
+   * Create a new chat session (Async)
    */
-  createChatSession(userId: string): ChatSession {
+  async createChatSession(userId: string): Promise<ChatSession> {
+    const defaultTitle = "New Chat";
+    const timestamp = new Date().toISOString();
+
+    try {
+      // Insert into Supabase
+      const { data, error } = await supabase
+        .from('legalrnd_saved_chats')
+        .insert({
+          lawyer_id: userId,
+          title: defaultTitle,
+          conversation: [],
+          updated_at: timestamp
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return {
+        id: data.id,
+        title: data.title,
+        timestamp: data.updated_at,
+        messageCount: 0,
+        lastMessage: "",
+        isActive: true
+      };
+    } catch (error) {
+      console.error('Error creating chat session:', error);
+      return {
+        id: crypto.randomUUID(), // Use valid UUID so it doesn't fail Postgres validation if we try to use it later
+        title: defaultTitle,
+        timestamp: timestamp,
+        messageCount: 0,
+        lastMessage: "Error creating session (Local)",
+        isActive: true
+      };
+    }
+
+    // OLD LOCAL STORAGE CODE (Commented out)
+    /*
     const sessionId = `session_${Date.now()}`;
     const session: ChatSession = {
       id: sessionId,
@@ -106,16 +177,35 @@ export class ChatHistoryService {
     localStorage.setItem(key, JSON.stringify(sessions));
 
     return session;
+    */
   }
 
   /**
-   * Load messages for a specific session
+   * Load messages for a specific session (Async)
    */
-  loadSessionMessages(userId: string, sessionId: string): ChatMessage[] {
+  async loadSessionMessages(_userId: string, sessionId: string): Promise<ChatMessage[]> {
     try {
+      const { data, error } = await supabase
+        .from('legalrnd_saved_chats')
+        .select('conversation')
+        .eq('id', sessionId)
+        .single();
+
+      if (error) throw error;
+
+      if (data && data.conversation) {
+        return typeof data.conversation === 'string'
+          ? JSON.parse(data.conversation)
+          : data.conversation;
+      }
+      return [];
+
+      // OLD LOCAL STORAGE CODE (Commented out)
+      /*
       const key = `legalrnd_chat_session_${sessionId}_${userId}`;
       const data = localStorage.getItem(key);
       return data ? JSON.parse(data) : [];
+      */
     } catch (error) {
       console.error('Error loading session messages:', error);
       return [];
@@ -123,23 +213,51 @@ export class ChatHistoryService {
   }
 
   /**
-   * Save messages for a specific session
+   * Save messages for a specific session (Async)
    */
-  saveSessionMessages(userId: string, sessionId: string, messages: ChatMessage[]): void {
+  async saveSessionMessages(_userId: string, sessionId: string, messages: ChatMessage[]): Promise<void> {
     try {
+      // Prepare update data
+      const updateData: any = {
+        conversation: messages,
+        updated_at: new Date().toISOString()
+      };
+
+      // Auto-update title if it's the first message or specific conditionsmet
+      if (messages.length > 0) {
+        const firstMsg = messages[0];
+        // Simple title logic: First 50 chars of first message
+        const newTitle = firstMsg.content.substring(0, 50) + (firstMsg.content.length > 50 ? '...' : '');
+        updateData.title = newTitle;
+      }
+
+      // Use UPSERT to handle cases where session might not exist (e.g. created locally/offline first)
+      // or if it was a "temp" session that we now want to persist.
+      const { error } = await supabase
+        .from('legalrnd_saved_chats')
+        .upsert({
+          id: sessionId,
+          lawyer_id: _userId, // Ensure we pass the owner ID
+          ...updateData
+        }, { onConflict: 'id' });
+
+      if (error) throw error;
+
+      // OLD LOCAL STORAGE CODE (Commented out)
+      /*
       const key = `legalrnd_chat_session_${sessionId}_${userId}`;
       localStorage.setItem(key, JSON.stringify(messages));
 
       // Update session metadata
       this.updateSessionMetadata(userId, sessionId, messages);
+      */
     } catch (error) {
       console.error('Error saving session messages:', error);
     }
   }
 
-  /**
-   * Update session metadata (title, message count, last message)
-   */
+  // Helper method removed or commented out as logic is now inside saveSessionMessages/Supabase trigger
+  /*
   updateSessionMetadata(userId: string, sessionId: string, messages: ChatMessage[]): void {
     try {
       const sessions = this.getChatSessions(userId);
@@ -158,11 +276,17 @@ export class ChatHistoryService {
       console.error('Error updating session metadata:', error);
     }
   }
+  */
 
   /**
-   * Set active session
+   * Set active session (Async/No-op for DB, implementation detail for UI)
+   * The DB doesn't track "active" state, the UI does. 
+   * We keep this method signature but make it do nothing or just update local state if needed.
    */
-  setActiveSession(userId: string, sessionId: string): void {
+  setActiveSession(_userId: string, _sessionId: string): void {
+    // This is now purely UI state management, no persistence needed for "active" flag in DB
+    // OLD LOCAL STORAGE CODE (Commented out)
+    /*
     try {
       const sessions = this.getChatSessions(userId);
       sessions.forEach(s => s.isActive = (s.id === sessionId));
@@ -172,13 +296,23 @@ export class ChatHistoryService {
     } catch (error) {
       console.error('Error setting active session:', error);
     }
+    */
   }
 
   /**
-   * Delete a chat session
+   * Delete a chat session (Async)
    */
-  deleteSession(userId: string, sessionId: string): void {
+  async deleteSession(_userId: string, sessionId: string): Promise<void> {
     try {
+      const { error } = await supabase
+        .from('legalrnd_saved_chats')
+        .delete()
+        .eq('id', sessionId);
+
+      if (error) throw error;
+
+      // OLD LOCAL STORAGE CODE (Commented out)
+      /*
       // Remove session messages
       const sessionKey = `legalrnd_chat_session_${sessionId}_${userId}`;
       localStorage.removeItem(sessionKey);
@@ -189,8 +323,66 @@ export class ChatHistoryService {
 
       const key = `legalrnd_chat_sessions_${userId}`;
       localStorage.setItem(key, JSON.stringify(sessions));
+      */
     } catch (error) {
       console.error('Error deleting session:', error);
+    }
+  }
+
+  /**
+   * Migrate LocalStorage Sessions to DB
+   */
+  async migrateLocalSessionsToDb(userId: string): Promise<void> {
+    try {
+      const key = `legalrnd_chat_sessions_${userId}`;
+      const data = localStorage.getItem(key);
+      const sessions: ChatSession[] = data ? JSON.parse(data) : [];
+
+      if (sessions.length === 0) return;
+
+      console.log(`Starting migration of ${sessions.length} local sessions to DB...`);
+
+      for (const session of sessions) {
+        // Check if already exists (optional, but good for idempotency)
+        // For now, simpler to just try insert.
+
+        // Load messages for this session
+        const msgKey = `legalrnd_chat_session_${session.id}_${userId}`;
+        const msgData = localStorage.getItem(msgKey);
+        const messages = msgData ? JSON.parse(msgData) : [];
+
+        if (messages.length === 0 && !session.title) continue; // Skip empty zombies
+
+        // Insert into DB
+        const { error } = await supabase
+          .from('legalrnd_saved_chats')
+          .insert({
+            lawyer_id: userId,
+            title: session.title || "Migrated Chat",
+            conversation: messages,
+            updated_at: session.timestamp || new Date().toISOString()
+            // We let ID be auto-generated or we could try to preserve it if it's a valid UUID.
+            // Local IDs are usually 'session_123456...', not UUIDs. So we let DB generate new UUIDs.
+          });
+
+        if (!error) {
+          // Cleanup local storage for this session after successful migration
+          // localStorage.removeItem(msgKey);
+          console.log(`Migrated session: ${session.title}`);
+        } else {
+          console.error(`Failed to migrate session ${session.id}:`, error);
+        }
+      }
+
+      // Finally, rename/clear the sessions list key to prevent re-migration
+      // localStorage.removeItem(key);
+      // Or rename it to indicate it's done
+      localStorage.setItem(`${key}_migrated`, 'true');
+      localStorage.removeItem(key);
+      console.log('Migration completed.');
+
+    } catch (error) {
+      console.error('Error during migration:', error);
     }
   }
 

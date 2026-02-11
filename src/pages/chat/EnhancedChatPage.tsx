@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ChatSession } from '@/types/chatSession';
-import { migrateOldChatToSessions } from '@/utils/chatMigration';
+
 import ChatHistorySidebar from '@/components/ChatHistorySidebar';
 
 export default function EnhancedChatPage() {
@@ -142,14 +142,19 @@ export default function EnhancedChatPage() {
 
   // Auto-save messages to current session
   useEffect(() => {
-    if (currentUser && currentSessionId && messages.length > 0) {
-      chatHistoryService.saveSessionMessages(currentUser.id, currentSessionId, messages);
+    const saveMessages = async () => {
+      if (currentUser && currentSessionId && messages.length > 0) {
+        // Use email for RLS policy match, fallback to ID for default user
+        const userId = currentUser.email || currentUser.id;
+        await chatHistoryService.saveSessionMessages(userId, currentSessionId, messages);
 
-      // Update the session list specifically to refresh "last message" and timestamp
-      // This ensures the sidebar stays in sync with the live chat
-      const updatedSessions = chatHistoryService.getChatSessions(currentUser.id);
-      setChatSessions(updatedSessions);
-    }
+        // Update the session list specifically to refresh "last message" and timestamp
+        // This ensures the sidebar stays in sync with the live chat
+        const updatedSessions = await chatHistoryService.getChatSessions(userId);
+        setChatSessions(updatedSessions);
+      }
+    };
+    saveMessages();
   }, [messages, currentUser, currentSessionId]);
 
   // Persist session cost to localStorage
@@ -161,37 +166,44 @@ export default function EnhancedChatPage() {
 
   // Initialize chat sessions when user changes
   useEffect(() => {
-    if (currentUser) {
-      // Run migration if needed
-      migrateOldChatToSessions(currentUser.id);
+    const initSessions = async () => {
+      if (currentUser) {
+        // Use email for RLS policy match
+        const userId = currentUser.email || currentUser.id;
 
-      // Load sessions
-      const sessions = chatHistoryService.getChatSessions(currentUser.id);
-      setChatSessions(sessions);
+        // Run migration if needed
+        await chatHistoryService.migrateLocalSessionsToDb(userId);
+        // migrateOldChatToSessions(currentUser.id); // OLD MIGRATION, replaced by DB migration
+
+        // Load sessions
+        const sessions = await chatHistoryService.getChatSessions(userId);
+        setChatSessions(sessions);
 
 
-      // Always start with a new chat (clean slate) - BUT DO NOT CREATE SESSION YET
-      // handleNewChat(); 
-      // Instead, just clear state and let handleNewChat do the rest (which now sets null)
-      setCurrentSessionId(null);
-      setMessages([]);
+        // Always start with a new chat (clean slate) - BUT DO NOT CREATE SESSION YET
+        // handleNewChat(); 
+        // Instead, just clear state and let handleNewChat do the rest (which now sets null)
+        setCurrentSessionId(null);
+        setMessages([]);
 
-      // Load session cost from localStorage
-      const savedCost = localStorage.getItem(`legalrnd_session_cost_${currentUser.id}`);
-      if (savedCost) {
-        setSessionCost(parseFloat(savedCost));
+        // Load session cost from localStorage
+        const savedCost = localStorage.getItem(`legalrnd_session_cost_${currentUser.id}`);
+        if (savedCost) {
+          setSessionCost(parseFloat(savedCost));
+        } else {
+          setSessionCost(0);
+        }
       } else {
-        setSessionCost(0);
-      }
-    } else {
-      // No user = clear everything
-      setMessages([]);
-      setSelectedDocumentIds([]);
+        // No user = clear everything
+        setMessages([]);
+        setSelectedDocumentIds([]);
 
-      setSessionCost(0);
-      setCurrentSessionId(null);
-      setChatSessions([]);
-    }
+        setSessionCost(0);
+        setCurrentSessionId(null);
+        setChatSessions([]);
+      }
+    };
+    initSessions();
   }, [currentUser?.id]);
 
   const loadUser = async () => {
@@ -229,7 +241,7 @@ export default function EnhancedChatPage() {
     console.log('✅ loadUser: User authenticated:', { id: user.id, email: user.email });
     setCurrentUser(user);
     if (user) {
-      loadSavedChats(user.id);
+      loadSavedChats(user.email || user.id);
     }
   };
 
@@ -239,20 +251,30 @@ export default function EnhancedChatPage() {
    * ========================================
    */
 
-  const loadSession = (sessionId: string) => {
+  const loadSession = async (sessionId: string) => {
     if (!currentUser) return;
 
-    const messages = chatHistoryService.loadSessionMessages(currentUser.id, sessionId);
-    setMessages(messages);
-    setCurrentSessionId(sessionId);
+    setIsLoading(true);
+    try {
+      const messages = await chatHistoryService.loadSessionMessages(currentUser.id, sessionId);
+      setMessages(messages);
+      setCurrentSessionId(sessionId);
 
-    // Update active status
-    chatHistoryService.setActiveSession(currentUser.id, sessionId);
-    const sessions = chatHistoryService.getChatSessions(currentUser.id);
-    setChatSessions(sessions);
+      // Update active status
+      chatHistoryService.setActiveSession(currentUser.id, sessionId);
+
+      // Update list to reflect active status visually (though we handle it via currentSessionId prop mostly)
+      const sessions = await chatHistoryService.getChatSessions(currentUser.id);
+      setChatSessions(sessions);
+    } catch (error) {
+      console.error("Failed to load session", error);
+      toast.error("Failed to load chat session");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleNewChat = () => {
+  const handleNewChat = async () => {
     // OLD: Create session immediately
     // if (!currentUser) return;
     // const newSession = chatHistoryService.createChatSession(currentUser.id);
@@ -265,19 +287,28 @@ export default function EnhancedChatPage() {
     setMessages([]);
     setSessionCost(0);
     // Don't touch chatSessions yet (sidebar remains as is until new session created)
+
+    // Optional: Refresh sessions list just in case
+    if (currentUser) {
+      const sessions = await chatHistoryService.getChatSessions(currentUser.id);
+      setChatSessions(sessions);
+    }
   };
 
-  const handleSessionDelete = (sessionId: string) => {
+  const handleSessionDelete = async (sessionId: string) => {
     if (!currentUser) return;
 
-    chatHistoryService.deleteSession(currentUser.id, sessionId);
-    const sessions = chatHistoryService.getChatSessions(currentUser.id);
+    if (!window.confirm("Are you sure you want to delete this chat?")) return;
+
+    const userId = currentUser.email || currentUser.id;
+    await chatHistoryService.deleteSession(userId, sessionId);
+    const sessions = await chatHistoryService.getChatSessions(userId);
     setChatSessions(sessions);
 
     // If deleted current session, load another or create new
     if (sessionId === currentSessionId) {
       if (sessions.length > 0) {
-        loadSession(sessions[0].id);
+        await loadSession(sessions[0].id);
       } else {
         handleNewChat();
       }
@@ -327,7 +358,8 @@ export default function EnhancedChatPage() {
     let activeSessionId = currentSessionId;
     if (!activeSessionId && currentUser) {
       console.log('Creates new session on first message...');
-      const newSession = chatHistoryService.createChatSession(currentUser.id);
+      const userId = currentUser.email || currentUser.id;
+      const newSession = await chatHistoryService.createChatSession(userId);
       activeSessionId = newSession.id;
       setCurrentSessionId(newSession.id);
 
@@ -581,7 +613,7 @@ export default function EnhancedChatPage() {
           {currentUser && (
             <div className="flex-1 overflow-hidden">
               <ChatHistorySidebar
-                userId={currentUser.id}
+                userId={currentUser.email || currentUser.id}
                 sessions={chatSessions}
                 currentSessionId={currentSessionId}
                 onSessionSelect={loadSession}
