@@ -373,7 +373,8 @@ export default function EnhancedChatPage() {
         lawyerId: currentUser?.email,  // ✅ FIXED: Pass email for RLS policy (not ID)
         // selectedDocumentIds: selectedDocumentIds.length > 0 ? selectedDocumentIds : undefined,
         // selectedMasters: selectedMasters.length > 0 ? selectedMasters : undefined,
-        sessionId: activeSessionId || undefined // Pass session ID if available (optional for analytics)
+        sessionId: activeSessionId || undefined, // Pass session ID if available (optional for analytics)
+        chatHistory: messages // Pass current chat history for context
       });
 
       const assistantMessage: ChatMessage = {

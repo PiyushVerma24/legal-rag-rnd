@@ -76,9 +76,10 @@ export class RAGQueryService {
       selectedDocumentIds?: string[];
       selectedMasters?: string[];
       sessionId?: string; // For analytics tracking
+      chatHistory?: any[]; // Previous conversation messages
     } = {}
   ): Promise<RAGResponse> {
-    const { lawyerId, preceptorId, selectedDocumentIds, selectedMasters } = options;
+    const { lawyerId, preceptorId, selectedDocumentIds, selectedMasters, chatHistory } = options;
     const userId = lawyerId || preceptorId;
 
 
@@ -174,21 +175,15 @@ export class RAGQueryService {
           };
         }
 
-        // Only use fallback if NO documents/categories were selected
-        const fallbackChunks = await this.getFallbackChunks();
-
-        if (fallbackChunks.length === 0) {
-          return {
-            success: false,
-            message: '⚖️ I apologize, but I could not find relevant information in the available legal documents to answer your question. Please try rephrasing your question or ask about topics related to Indian law, case law, statutes, and judicial precedents available in the system.'
-          };
-        }
-
-        return this.generateResponseWithFallback(question, fallbackChunks, embeddingResult.tokenCount);
+        // Return standard message if no relevant documents found (fallback disabled)
+        return {
+          success: false,
+          message: 'No relevant documents found for your question'
+        };
       }
 
       // 5. Generate response with multi-model fallback
-      const response = await this.generateResponseWithFallback(question, enhancedChunks, embeddingResult.tokenCount);
+      const response = await this.generateResponseWithFallback(question, enhancedChunks, embeddingResult.tokenCount, chatHistory);
 
       // 6. Log AI usage with comprehensive details
       const documentsUsed = [...new Set(enhancedChunks.map(c => c.document_title))];
@@ -306,25 +301,7 @@ export class RAGQueryService {
     }));
   }
 
-  /**
-   * Get fallback chunks from recent documents
-   */
-  private async getFallbackChunks(): Promise<any[]> {
-    const { data: chunks } = await supabase
-      .from('legalrnd_document_chunks')
-      .select(`
-        *,
-        legalrnd_documents!inner(title, master_id, file_path, file_type)
-      `)
-      .limit(3);
 
-    // Map the nested join structure to flat properties to match enhancedChunks format
-    return (chunks || []).map((chunk: any) => ({
-      ...chunk,
-      file_path: chunk.legalrnd_documents?.file_path,
-      file_type: chunk.legalrnd_documents?.file_type
-    }));
-  }
 
   /**
    * Validate question relevance and safety
@@ -384,7 +361,8 @@ export class RAGQueryService {
   private async generateResponseWithFallback(
     question: string,
     chunks: any[],
-    embeddingTokens: number = 0
+    embeddingTokens: number = 0,
+    chatHistory: any[] = []
   ): Promise<RAGResponse> {
     // Build context from chunks
     const context = chunks.map((chunk, idx) => {
@@ -478,13 +456,31 @@ ${needsSimple ? `\n⭐ **SIMPLE EXPLANATION MODE (ACTIVE):**
 - If sources are insufficient, explicitly state: "The available documents do not contain sufficient information on..."
 
 AVAILABLE SOURCES (${chunks.length} passages from legal documents):
-${context}`;
+${context}
+
+🧠 **CONVERSATION CONTEXT:**
+- The user may ask follow-up questions referencing previous messages.
+- Use the provided conversation history to understand context (e.g., "What about X?" refers to the previous topic).
+- If the user changes the topic, answer the new question independently.`;
 
     const userPrompt = `LEGAL QUESTION: ${question}
 
 Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough and well-organized'} legal analysis using ONLY the sources above. Follow the formatting requirements exactly. Use markdown formatting, numbered lists for statutes, bullet points for case law, and clear section headers. Include [Source X] citations after key legal points. End with the verification disclaimer.`;
 
     let lastError: Error | null = null;
+
+    let historyMessages: any[] = [];
+    if (chatHistory && chatHistory.length > 0) {
+      // Take last 10 messages to manage context window
+      historyMessages = chatHistory
+        .slice(-10)
+        .map(msg => ({
+          role: msg.type === 'user' ? 'user' : 'assistant', // Ensure valid role
+          content: msg.content
+        }));
+
+      console.log(`🧠 Injected ${historyMessages.length} history messages into context`);
+    }
 
     // Try each model in priority order
     for (const model of this.modelPriority) {
@@ -503,6 +499,7 @@ Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough
             model,
             messages: [
               { role: 'system', content: systemPrompt },
+              ...historyMessages,
               { role: 'user', content: userPrompt }
             ],
             temperature: 0.7,
@@ -590,7 +587,7 @@ Create a ${needsSimple ? 'comprehensive yet simple, well-structured' : 'thorough
             totalTokens
           },
           debug: {
-            systemPrompt,
+            systemPrompt: systemPrompt + (historyMessages.length > 0 ? `\n\n--- 🧠 CONVERSATION HISTORY (${historyMessages.length} messages) ---\n` + JSON.stringify(historyMessages, null, 2) : ''),
             userPrompt
           },
           // New fields for LLM Response display
